@@ -387,12 +387,24 @@ const CODEBASE_SIZE = { small: 0.6, medium: 1.0, large: 1.8 };
 const VERBOSE_LANGS = ["java", "c#", "csharp", "c++", "cpp", "objective-c"];
 const TERSE_LANGS = ["python", "ruby", "go"];
 
+const HOURS_PER_MONTH = 730; // average month
+
+function quotaWindowLabel(hours) {
+  if (hours <= 24) return `${hours}-hour`;
+  if (hours <= 24 * 8) return "weekly";
+  return "monthly";
+}
+
 /**
  * Coding-agent products (Claude Code, Codex CLI, GitHub Copilot, Cursor, ...)
- * bill as flat monthly seats, not $/token — a different pricing model than
- * the raw API rows above. For each we report both numbers: the real
- * subscription price, and what the same token volume would cost metered
- * through the tool's underlying model, so the two are comparable.
+ * bill as a flat monthly seat with a usage quota that resets on a rolling
+ * window (5 hours, weekly, monthly) — not $/token like the raw API rows
+ * above. For each we estimate what share of that quota the requested volume
+ * would consume, how many seats you'd actually need to sustain it without
+ * getting capped, and what the same tokens would cost metered through the
+ * tool's underlying model, so seat-license vs. pay-per-token is comparable.
+ * Quota sizes are heuristic assumptions (providers rarely publish exact
+ * token-equivalent limits) — treat utilization as directional, not exact.
  */
 function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch, latencyCount }, models, codingTools) {
   const results = codingTools.map((tool) => {
@@ -417,7 +429,18 @@ function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch
       apiEquivalentMonthlyCost = +cost.toFixed(2);
     }
 
-    const monthlyPrice = tool.monthlyPrice;
+    // quota utilization: spread the month's tokens evenly across reset windows
+    const monthlyTaskTokens = (input + output) * tasksPerMonth;
+    const windowsPerMonth = HOURS_PER_MONTH / tool.quotaWindowHours;
+    const avgTokensPerWindow = monthlyTaskTokens / windowsPerMonth;
+    const utilizationPct = +((avgTokensPerWindow / tool.quotaTokensPerWindow) * 100).toFixed(1);
+    const seatsNeeded = Math.max(1, Math.ceil(utilizationPct / 100));
+    // if usage is bunched into one window instead of spread evenly, how many
+    // hours into the window would a single seat hit its cap?
+    const hoursUntilQuotaExhausted =
+      utilizationPct > 100 ? +(tool.quotaWindowHours / (utilizationPct / 100)).toFixed(1) : tool.quotaWindowHours;
+
+    const monthlyPrice = tool.monthlyPrice * seatsNeeded;
     return {
       id: tool.id,
       name: tool.name,
@@ -432,7 +455,14 @@ function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch
       apiEquivalentMonthlyCost,
       cheaperThanApiEquivalent: apiEquivalentMonthlyCost != null ? monthlyPrice < apiEquivalentMonthlyCost : null,
       valueScore: +(quality / Math.log10(monthlyPrice + 10)).toFixed(1),
-      usageNote: tool.usageNote
+      usageNote: tool.usageNote,
+      quota: {
+        windowHours: tool.quotaWindowHours,
+        windowLabel: quotaWindowLabel(tool.quotaWindowHours),
+        utilizationPct,
+        seatsNeeded,
+        hoursUntilQuotaExhausted
+      }
     };
   });
   return results.sort((a, b) => b.valueScore - a.valueScore);

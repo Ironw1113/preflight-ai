@@ -115,3 +115,12 @@ td .provider { display: block; font-size: 0.72rem; color: #7686a3; }
 .price-box strong { display: block; font-size: 1.05rem; }
 .price-box .badge { display: inline-block; margin: 4px 0 0; margin-left: 0; }
 .tool-footer { display: flex; justify-content: space-between; font-size: 0.8rem; color: #93a0b8; }
+
+.quota-row { margin-bottom: 14px; }
+.quota-bar { width: 100%; height: 6px; background: #1e2740; border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
+.quota-fill { height: 100%; background: linear-gradient(90deg, #3574e0, #6fd68a); border-radius: 3px; }
+.quota-fill.over { background: linear-gradient(90deg, #d66f6f, #ff9a5a); }
+.quota-label { display: block; font-size: 0.72rem; color: #7686a3; }
+.quota-note { font-size: 0.75rem; margin-top: 4px; line-height: 1.4; }
+.quota-note.ok { color: #6fd68a; }
+.quota-note.warn { color: #ff9a5a; }

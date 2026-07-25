@@ -129,11 +129,25 @@ function CodingToolsTable({ result }) {
               <div className="qbar"><div className="qfill" style={{ width: t.quality + "%" }} /></div>
               <span>{t.quality} quality</span>
             </div>
+            <div className="quota-row">
+              <div className="quota-bar">
+                <div className={`quota-fill ${t.quota.utilizationPct > 100 ? "over" : ""}`} style={{ width: Math.min(100, t.quota.utilizationPct) + "%" }} />
+              </div>
+              <span className="quota-label">{t.quota.utilizationPct}% of {t.quota.windowLabel} quota (1 seat)</span>
+              {t.quota.utilizationPct > 100 ? (
+                <p className="quota-note warn">
+                  Exceeds a single seat — averages out to hitting the cap ~{t.quota.hoursUntilQuotaExhausted}h into each {t.quota.windowLabel} window.
+                  Needs {t.quota.seatsNeeded} seats to sustain this volume without getting capped.
+                </p>
+              ) : (
+                <p className="quota-note ok">Fits within one seat's {t.quota.windowLabel} quota.</p>
+              )}
+            </div>
             <div className="tool-prices">
               <div className="price-box">
                 <span className="label">Monthly price</span>
                 <strong>{fmt(t.monthlyCost.mid)}</strong>
-                <span className="range">flat, per seat</span>
+                <span className="range">{t.quota.seatsNeeded > 1 ? `flat, ${t.quota.seatsNeeded} seats` : "flat, per seat"}</span>
               </div>
               <div className="price-box">
                 <span className="label">vs. metered API</span>
@@ -157,9 +171,10 @@ function CodingToolsTable({ result }) {
         ))}
       </div>
       <p className="disclaimer">
-        Monthly price is the tool's real flat subscription cost (one seat). "vs. metered API" is what the same token
-        volume would cost paying per-token through the tool's underlying model — useful for judging whether a seat
-        license or pay-as-you-go API access is the better fit at your volume.
+        Monthly price is the tool's real flat subscription cost, scaled up to however many seats your volume needs.
+        "vs. metered API" is what the same token volume would cost paying per-token through the tool's underlying
+        model. Usage-quota sizes are heuristic assumptions (providers rarely publish exact token-equivalent limits) —
+        treat the quota bar as directional, not exact.
       </p>
     </div>
   );

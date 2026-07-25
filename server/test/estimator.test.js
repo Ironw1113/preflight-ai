@@ -161,3 +161,31 @@ test("high-volume usage makes flat subscriptions cheaper than the metered equiva
   assert.ok(claudeCodePro.apiEquivalentMonthlyCost > claudeCodePro.monthlyCost.mid);
   assert.strictEqual(claudeCodePro.cheaperThanApiEquivalent, true);
 });
+
+// --- quota / usage-window estimates ---
+
+test("low volume fits comfortably within a single seat's quota", () => {
+  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
+  const ccp = r.codingTools.find((t) => t.id === "claude-code-pro");
+  assert.ok(ccp.quota.utilizationPct < 100, "should not exceed quota at default volume");
+  assert.strictEqual(ccp.quota.seatsNeeded, 1);
+  assert.strictEqual(ccp.quota.hoursUntilQuotaExhausted, ccp.quota.windowHours, "quota lasts the full window when under 100%");
+  assert.strictEqual(ccp.monthlyCost.mid, 20, "single seat, no markup");
+  assert.strictEqual(ccp.quota.windowLabel, "5-hour");
+});
+
+test("high volume exceeds a single seat's quota and scales seats + price", () => {
+  const r = estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 5000 }, data.models, data.codingTools);
+  const ccp = r.codingTools.find((t) => t.id === "claude-code-pro");
+  assert.ok(ccp.quota.utilizationPct > 100);
+  assert.ok(ccp.quota.seatsNeeded > 1);
+  assert.strictEqual(ccp.monthlyCost.mid, 20 * ccp.quota.seatsNeeded, "price scales with seats needed");
+  assert.ok(ccp.quota.hoursUntilQuotaExhausted < ccp.quota.windowHours, "quota would run out before the window resets");
+});
+
+test("monthly-reset tools report a monthly window label", () => {
+  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
+  const cursor = r.codingTools.find((t) => t.id === "cursor-pro");
+  assert.strictEqual(cursor.quota.windowLabel, "monthly");
+  assert.strictEqual(cursor.quota.windowHours, 730);
+});
