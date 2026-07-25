@@ -387,7 +387,58 @@ const CODEBASE_SIZE = { small: 0.6, medium: 1.0, large: 1.8 };
 const VERBOSE_LANGS = ["java", "c#", "csharp", "c++", "cpp", "objective-c"];
 const TERSE_LANGS = ["python", "ruby", "go"];
 
-function estimateCode(params, models) {
+/**
+ * Coding-agent products (Claude Code, Codex CLI, GitHub Copilot, Cursor, ...)
+ * bill as flat monthly seats, not $/token — a different pricing model than
+ * the raw API rows above. For each we report both numbers: the real
+ * subscription price, and what the same token volume would cost metered
+ * through the tool's underlying model, so the two are comparable.
+ */
+function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch, latencyCount }, models, codingTools) {
+  const results = codingTools.map((tool) => {
+    const underlying = tool.underlyingModel ? models.find((m) => m.id === tool.underlyingModel) : null;
+    const quality = tool.qualityOverride ?? underlying?.quality.coding ?? 80;
+    const fitsContext = underlying ? input <= underlying.context : true;
+    const secondsPerTask = underlying
+      ? (underlying.latencyMs / 1000) * latencyCount + output / underlying.tokensPerSec
+      : 2 * latencyCount;
+
+    let apiEquivalentMonthlyCost = null;
+    if (underlying) {
+      const cachedShare = underlying.cachedInPrice != null ? cacheHitRate : 0;
+      const monthlyInput = input * tasksPerMonth;
+      const monthlyOutput = output * tasksPerMonth;
+      const inCost =
+        (monthlyInput * (1 - cachedShare) * underlying.inPrice +
+          monthlyInput * cachedShare * (underlying.cachedInPrice || 0)) / 1e6;
+      const outCost = (monthlyOutput * underlying.outPrice) / 1e6;
+      let cost = inCost + outCost;
+      if (batch) cost *= 0.5;
+      apiEquivalentMonthlyCost = +cost.toFixed(2);
+    }
+
+    const monthlyPrice = tool.monthlyPrice;
+    return {
+      id: tool.id,
+      name: tool.name,
+      provider: tool.provider,
+      product: tool.product,
+      plan: tool.plan,
+      quality,
+      fitsContext,
+      secondsPerTask: +secondsPerTask.toFixed(1),
+      monthlyCost: { low: monthlyPrice, mid: monthlyPrice, high: monthlyPrice },
+      costPerTask: +(monthlyPrice / tasksPerMonth).toFixed(4),
+      apiEquivalentMonthlyCost,
+      cheaperThanApiEquivalent: apiEquivalentMonthlyCost != null ? monthlyPrice < apiEquivalentMonthlyCost : null,
+      valueScore: +(quality / Math.log10(monthlyPrice + 10)).toFixed(1),
+      usageNote: tool.usageNote
+    };
+  });
+  return results.sort((a, b) => b.valueScore - a.valueScore);
+}
+
+function estimateCode(params, models, codingTools = []) {
   const { taskKind = "feature", language = "typescript", codebaseSize = "medium", tasksPerMonth = 200, cacheHitRate = 0, batch = false } = params;
   const kind = CODE_TASKS[taskKind];
   if (!kind) throw new Error(`taskKind must be one of: ${Object.keys(CODE_TASKS).join(", ")}`);
@@ -411,6 +462,13 @@ function estimateCode(params, models) {
 
   const { picks, recommendation } = picksAndRec(results);
 
+  const codingToolResults = estimateCodingTools(
+    { input, output, tasksPerMonth, cacheHitRate, batch, latencyCount: kind.loops },
+    models,
+    codingTools
+  );
+  const { picks: codingToolPicks, recommendation: codingToolRecommendation } = picksAndRec(codingToolResults);
+
   return {
     task: { type: "coding", label: `${kind.label} — ${language}, ${codebaseSize} codebase`, confidence: "high", loops: kind.loops },
     tokensPerTask: { input: range(input), output: range(output) },
@@ -419,6 +477,9 @@ function estimateCode(params, models) {
     results: results.sort((a, b) => b.valueScore - a.valueScore),
     picks,
     recommendation,
+    codingTools: codingToolResults,
+    codingToolPicks,
+    codingToolRecommendation,
     disclaimer: "Heuristic pre-launch estimates. Ranges reflect ±35% uncertainty; calibrate against real usage before committing budgets."
   };
 }

@@ -86,6 +86,76 @@ function ResultsTable({ result }) {
   );
 }
 
+function CodingToolsTable({ result }) {
+  const [sortBy, setSortBy] = useState("valueScore");
+  const tools = result.codingTools || [];
+  if (tools.length === 0) return null;
+  const sorted = [...tools].sort((a, b) =>
+    sortBy === "monthlyCost"
+      ? a.monthlyCost.mid - b.monthlyCost.mid
+      : sortBy === "secondsPerTask"
+        ? a.secondsPerTask - b.secondsPerTask
+        : b[sortBy] - a[sortBy]
+  );
+  return (
+    <div className="card">
+      <div className="tablehead">
+        <h2>Coding agent subscriptions</h2>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <option value="valueScore">Sort: best value</option>
+          <option value="quality">Sort: quality</option>
+          <option value="monthlyCost">Sort: cheapest</option>
+          <option value="secondsPerTask">Sort: fastest</option>
+        </select>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tool</th><th>Quality</th><th>Monthly price</th><th>vs. metered API</th><th>Time / run</th><th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((t) => (
+            <tr key={t.id} className={t.id === result.codingToolPicks?.bestBudget ? "pick-budget" : t.id === result.codingToolPicks?.bestQuality ? "pick-quality" : ""}>
+              <td>
+                <strong>{t.product} — {t.plan}</strong>
+                <span className="provider">{t.provider}</span>
+                {t.id === result.codingToolPicks?.bestQuality && <span className="badge q">top quality</span>}
+                {t.id === result.codingToolPicks?.bestBudget && <span className="badge b">smart budget</span>}
+                <span className="range">{t.usageNote}</span>
+              </td>
+              <td>
+                <div className="qbar"><div className="qfill" style={{ width: t.quality + "%" }} /></div>
+                {t.quality}
+              </td>
+              <td><strong>{fmt(t.monthlyCost.mid)}</strong><span className="range">flat, per seat</span></td>
+              <td>
+                {t.apiEquivalentMonthlyCost != null ? (
+                  <>
+                    {fmt(t.apiEquivalentMonthlyCost)}
+                    <span className={`badge ${t.cheaperThanApiEquivalent ? "b" : "warn"}`}>
+                      {t.cheaperThanApiEquivalent ? "subscription cheaper" : "API cheaper"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="range">n/a — mixed models</span>
+                )}
+              </td>
+              <td>{t.secondsPerTask}s</td>
+              <td>{t.valueScore}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="disclaimer">
+        Monthly price is the tool's real flat subscription cost (one seat). "vs. metered API" is what the same token
+        volume would cost paying per-token through the tool's underlying model — useful for judging whether a seat
+        license or pay-as-you-go API access is the better fit at your volume.
+      </p>
+    </div>
+  );
+}
+
 function SharedInputs({ tasksPerMonth, setTasksPerMonth, cacheHitRate, setCacheHitRate, batch, setBatch, volumeLabel, children }) {
   return (
     <div className="grid">
@@ -324,6 +394,8 @@ function CodeMode() {
             </div>
           </div>
           {result.recommendation && <div className="rec">💡 {result.recommendation}</div>}
+          <CodingToolsTable result={result} />
+          {result.codingToolRecommendation && <div className="rec">🧑‍💻 {result.codingToolRecommendation}</div>}
           <ResultsTable result={result} />
         </>
       )}

@@ -37,7 +37,7 @@ app.get("/api/code-tasks", (_req, res) => {
 
 app.post("/api/estimate-code", (req, res) => {
   try {
-    const result = estimateCode(req.body || {}, data.models);
+    const result = estimateCode(req.body || {}, data.models, data.codingTools);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });

@@ -133,3 +133,31 @@ test("large codebase costs more than small", () => {
 test("code estimator rejects unknown task kind", () => {
   assert.throws(() => estimateCode({ taskKind: "nonsense" }, data.models));
 });
+
+// --- coding agent tools (Claude Code, Codex CLI, Copilot, Cursor) ---
+
+test("coding tools list is omitted-safe when not provided", () => {
+  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
+  assert.deepStrictEqual(r.codingTools, []);
+});
+
+test("coding tools report flat subscription price alongside API-equivalent cost", () => {
+  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
+  assert.strictEqual(r.codingTools.length, data.codingTools.length);
+  const claudeCodePro = r.codingTools.find((t) => t.id === "claude-code-pro");
+  assert.strictEqual(claudeCodePro.monthlyCost.mid, 20);
+  assert.strictEqual(claudeCodePro.monthlyCost.low, claudeCodePro.monthlyCost.high, "subscription price has no uncertainty band");
+  assert.ok(claudeCodePro.apiEquivalentMonthlyCost > 0);
+  assert.strictEqual(typeof claudeCodePro.cheaperThanApiEquivalent, "boolean");
+
+  const copilot = r.codingTools.find((t) => t.id === "copilot-individual");
+  assert.strictEqual(copilot.apiEquivalentMonthlyCost, null, "tools with no underlying model have no API-equivalent cost");
+  assert.ok(copilot.quality >= 50 && copilot.quality <= 100);
+});
+
+test("high-volume usage makes flat subscriptions cheaper than the metered equivalent", () => {
+  const r = estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 5000 }, data.models, data.codingTools);
+  const claudeCodePro = r.codingTools.find((t) => t.id === "claude-code-pro");
+  assert.ok(claudeCodePro.apiEquivalentMonthlyCost > claudeCodePro.monthlyCost.mid);
+  assert.strictEqual(claudeCodePro.cheaperThanApiEquivalent, true);
+});
