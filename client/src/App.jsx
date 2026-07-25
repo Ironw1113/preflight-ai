@@ -108,31 +108,38 @@ function CodingToolsTable({ result }) {
           <option value="secondsPerTask">Sort: fastest</option>
         </select>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Tool</th><th>Quality</th><th>Monthly price</th><th>vs. metered API</th><th>Time / run</th><th>Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((t) => (
-            <tr key={t.id} className={t.id === result.codingToolPicks?.bestBudget ? "pick-budget" : t.id === result.codingToolPicks?.bestQuality ? "pick-quality" : ""}>
-              <td>
+      <div className="tool-grid">
+        {sorted.map((t) => (
+          <div
+            key={t.id}
+            className={`tool-card ${t.id === result.codingToolPicks?.bestBudget ? "pick-budget" : t.id === result.codingToolPicks?.bestQuality ? "pick-quality" : ""}`}
+          >
+            <div className="tool-head">
+              <div>
                 <strong>{t.product} — {t.plan}</strong>
                 <span className="provider">{t.provider}</span>
+              </div>
+              <div className="tool-badges">
                 {t.id === result.codingToolPicks?.bestQuality && <span className="badge q">top quality</span>}
                 {t.id === result.codingToolPicks?.bestBudget && <span className="badge b">smart budget</span>}
-                <span className="range">{t.usageNote}</span>
-              </td>
-              <td>
-                <div className="qbar"><div className="qfill" style={{ width: t.quality + "%" }} /></div>
-                {t.quality}
-              </td>
-              <td><strong>{fmt(t.monthlyCost.mid)}</strong><span className="range">flat, per seat</span></td>
-              <td>
+              </div>
+            </div>
+            <p className="tool-note">{t.usageNote}</p>
+            <div className="qbar-row">
+              <div className="qbar"><div className="qfill" style={{ width: t.quality + "%" }} /></div>
+              <span>{t.quality} quality</span>
+            </div>
+            <div className="tool-prices">
+              <div className="price-box">
+                <span className="label">Monthly price</span>
+                <strong>{fmt(t.monthlyCost.mid)}</strong>
+                <span className="range">flat, per seat</span>
+              </div>
+              <div className="price-box">
+                <span className="label">vs. metered API</span>
                 {t.apiEquivalentMonthlyCost != null ? (
                   <>
-                    {fmt(t.apiEquivalentMonthlyCost)}
+                    <strong>{fmt(t.apiEquivalentMonthlyCost)}</strong>
                     <span className={`badge ${t.cheaperThanApiEquivalent ? "b" : "warn"}`}>
                       {t.cheaperThanApiEquivalent ? "subscription cheaper" : "API cheaper"}
                     </span>
@@ -140,13 +147,15 @@ function CodingToolsTable({ result }) {
                 ) : (
                   <span className="range">n/a — mixed models</span>
                 )}
-              </td>
-              <td>{t.secondsPerTask}s</td>
-              <td>{t.valueScore}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </div>
+            </div>
+            <div className="tool-footer">
+              <span>{t.secondsPerTask}s / run</span>
+              <span>Value {t.valueScore}</span>
+            </div>
+          </div>
+        ))}
+      </div>
       <p className="disclaimer">
         Monthly price is the tool's real flat subscription cost (one seat). "vs. metered API" is what the same token
         volume would cost paying per-token through the tool's underlying model — useful for judging whether a seat

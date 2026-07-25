@@ -98,3 +98,20 @@ td .provider { display: block; font-size: 0.72rem; color: #7686a3; }
 .qbar { width: 70px; height: 6px; background: #1e2740; border-radius: 3px; display: inline-block; margin-right: 8px; vertical-align: middle; }
 .qfill { height: 100%; background: linear-gradient(90deg, #3574e0, #6fd68a); border-radius: 3px; }
 .disclaimer { margin-top: 14px; font-size: 0.75rem; color: #7686a3; }
+
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.tool-card { background: #0f1420; border: 1px solid #26304a; border-radius: 12px; padding: 16px; }
+.tool-card.pick-budget { border-color: rgba(111, 214, 138, 0.4); background: rgba(30, 80, 45, 0.12); }
+.tool-card.pick-quality { border-color: rgba(179, 157, 255, 0.4); background: rgba(80, 60, 140, 0.10); }
+.tool-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.tool-head strong { display: block; font-size: 0.95rem; }
+.tool-badges { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.tool-badges .badge { margin-left: 0; }
+.tool-note { font-size: 0.75rem; color: #7686a3; margin: 6px 0 12px; line-height: 1.4; }
+.qbar-row { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; margin-bottom: 14px; }
+.tool-prices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.price-box { background: #171e2e; border: 1px solid #26304a; border-radius: 8px; padding: 10px 12px; }
+.price-box .label { font-size: 0.7rem; color: #93a0b8; margin-bottom: 4px; }
+.price-box strong { display: block; font-size: 1.05rem; }
+.price-box .badge { display: inline-block; margin: 4px 0 0; margin-left: 0; }
+.tool-footer { display: flex; justify-content: space-between; font-size: 0.8rem; color: #93a0b8; }
