@@ -184,27 +184,15 @@ function range(v) {
 }
 
 /**
- * @param {object} params
- * @param {string} params.description  plain-language task description
- * @param {number} params.tasksPerMonth  how many times the task runs per month
- * @param {number} [params.avgInputWords]  avg source document length (for doc-based tasks)
- * @param {number} [params.cacheHitRate]  0–1, share of input tokens served from cache
- * @param {boolean} [params.batch]  use batch pricing (assume 50% discount where offered)
- * @param {Array} models  model records from models.json
+ * Shared pricing core: given per-run token totals, price every model.
+ * qualityFor(m) lets callers score quality per task, per workflow mix, etc.
+ * latencyCount = number of sequential API calls per run (workflow steps, agent loops).
  */
-async function estimate(params, models) {
-  const { description, tasksPerMonth = 1000, avgInputWords = 500, cacheHitRate = 0, batch = false } = params;
-  if (!description || !description.trim()) throw new Error("description is required");
-  if (tasksPerMonth <= 0) throw new Error("tasksPerMonth must be positive");
+function modelResults({ perTaskInput, perTaskOutput, tasksPerMonth, cacheHitRate = 0, batch = false, qualityFor, latencyCount = 1 }, models) {
+  const monthlyInput = perTaskInput * tasksPerMonth;
+  const monthlyOutput = perTaskOutput * tasksPerMonth;
 
-  const { taskType, confidence } = await classifyTask(description);
-  const profile = TASK_PROFILES[taskType];
-  const perTask = tokensForTask(profile, { avgInputWords });
-
-  const monthlyInput = perTask.input * tasksPerMonth;
-  const monthlyOutput = perTask.output * tasksPerMonth;
-
-  const results = models.map((m) => {
+  return models.map((m) => {
     const cachedShare = m.cachedInPrice != null ? cacheHitRate : 0;
     const inCost =
       (monthlyInput * (1 - cachedShare) * m.inPrice +
@@ -213,9 +201,9 @@ async function estimate(params, models) {
     let monthlyCost = inCost + outCost;
     if (batch) monthlyCost *= 0.5;
 
-    const quality = m.quality[profile.qualityKey];
-    const secondsPerTask = m.latencyMs / 1000 + perTask.output / m.tokensPerSec;
-    const fitsContext = perTask.input <= m.context;
+    const quality = Math.round(qualityFor(m));
+    const secondsPerTask = (m.latencyMs / 1000) * latencyCount + perTaskOutput / m.tokensPerSec;
+    const fitsContext = perTaskInput <= m.context;
 
     return {
       id: m.id,
@@ -234,8 +222,9 @@ async function estimate(params, models) {
       valueScore: +(quality / Math.log10(monthlyCost + 10)).toFixed(1)
     };
   });
+}
 
-  // recommendation: best quality, best value, cheapest acceptable (quality >= 80)
+function picksAndRec(results) {
   const usable = results.filter((r) => r.fitsContext);
   const byQuality = [...usable].sort((a, b) => b.quality - a.quality);
   const byCost = [...usable].sort((a, b) => a.monthlyCost.mid - b.monthlyCost.mid);
@@ -252,16 +241,186 @@ async function estimate(params, models) {
     recommendation = `${bestQuality.name} is both the highest-quality and most economical fit for this task.`;
   }
 
+  return { picks: { bestQuality: bestQuality?.id || null, bestBudget: bestBudget?.id || null }, recommendation };
+}
+
+/**
+ * @param {object} params
+ * @param {string} params.description  plain-language task description
+ * @param {number} params.tasksPerMonth  how many times the task runs per month
+ * @param {number} [params.avgInputWords]  avg source document length (for doc-based tasks)
+ * @param {number} [params.cacheHitRate]  0–1, share of input tokens served from cache
+ * @param {boolean} [params.batch]  use batch pricing (assume 50% discount where offered)
+ * @param {Array} models  model records from models.json
+ */
+async function estimate(params, models) {
+  const { description, tasksPerMonth = 1000, avgInputWords = 500, cacheHitRate = 0, batch = false } = params;
+  if (!description || !description.trim()) throw new Error("description is required");
+  if (tasksPerMonth <= 0) throw new Error("tasksPerMonth must be positive");
+
+  const { taskType, confidence } = await classifyTask(description);
+  const profile = TASK_PROFILES[taskType];
+  const perTask = tokensForTask(profile, { avgInputWords });
+
+  const results = modelResults({
+    perTaskInput: perTask.input,
+    perTaskOutput: perTask.output,
+    tasksPerMonth, cacheHitRate, batch,
+    qualityFor: (m) => m.quality[profile.qualityKey]
+  }, models);
+
+  const { picks, recommendation } = picksAndRec(results);
+
   return {
     task: { type: taskType, label: profile.label, confidence },
     tokensPerTask: { input: range(perTask.input), output: range(perTask.output) },
-    monthlyTokens: { input: range(monthlyInput), output: range(monthlyOutput) },
+    monthlyTokens: { input: range(perTask.input * tasksPerMonth), output: range(perTask.output * tasksPerMonth) },
     assumptions: { tasksPerMonth, avgInputWords, cacheHitRate, batch, wordsToTokens: WORDS_TO_TOKENS, uncertainty: `±${RANGE * 100}%` },
     results: results.sort((a, b) => b.valueScore - a.valueScore),
-    picks: { bestQuality: bestQuality?.id || null, bestBudget: bestBudget?.id || null },
+    picks,
     recommendation,
     disclaimer: "Heuristic pre-launch estimates. Ranges reflect ±35% uncertainty; calibrate against real usage before committing budgets."
   };
 }
 
-module.exports = { estimate, classifyTask, classifyTaskHeuristic, TASK_PROFILES };
+/**
+ * Multi-step workflow estimator with context accumulation:
+ * each step's input carries the outputs of all previous steps, which is
+ * why agentic pipelines cost far more than the sum of isolated calls.
+ *
+ * @param {object} params
+ * @param {Array<{description: string, avgInputWords?: number}>} params.steps
+ * @param {number} params.tasksPerMonth  workflow runs per month
+ */
+async function estimateWorkflow(params, models) {
+  const { steps, tasksPerMonth = 1000, cacheHitRate = 0, batch = false } = params;
+  if (!Array.isArray(steps) || steps.length === 0) throw new Error("steps must be a non-empty array");
+  if (steps.length > 12) throw new Error("maximum 12 steps");
+  if (tasksPerMonth <= 0) throw new Error("tasksPerMonth must be positive");
+
+  const classified = await Promise.all(steps.map(async (s, i) => {
+    if (!s.description || !s.description.trim()) throw new Error(`step ${i + 1} needs a description`);
+    const { taskType, confidence } = await classifyTask(s.description);
+    const profile = TASK_PROFILES[taskType];
+    const base = tokensForTask(profile, { avgInputWords: s.avgInputWords || 500 });
+    return { index: i + 1, description: s.description, taskType, label: profile.label, confidence, qualityKey: profile.qualityKey, base };
+  }));
+
+  // context accumulation: step i re-reads all previous outputs
+  let carry = 0;
+  const stepDetails = classified.map((s) => {
+    const input = s.base.input + carry;
+    const output = s.base.output;
+    carry += output;
+    return { ...s, tokens: { input, output } };
+  });
+
+  const totalInput = stepDetails.reduce((a, s) => a + s.tokens.input, 0);
+  const totalOutput = stepDetails.reduce((a, s) => a + s.tokens.output, 0);
+  const totalWeight = stepDetails.reduce((a, s) => a + s.tokens.input + s.tokens.output, 0);
+
+  const results = modelResults({
+    perTaskInput: totalInput,
+    perTaskOutput: totalOutput,
+    tasksPerMonth, cacheHitRate, batch,
+    latencyCount: stepDetails.length,
+    // token-weighted average quality across the step categories
+    qualityFor: (m) => stepDetails.reduce((a, s) => a + m.quality[s.qualityKey] * (s.tokens.input + s.tokens.output), 0) / totalWeight
+  }, models);
+
+  const { picks, recommendation } = picksAndRec(results);
+
+  // mixed-model plan: per step, cheapest model with quality >= 85 for that step's category
+  const discount = batch ? 0.5 : 1;
+  const stepCost = (m, s) => {
+    const cachedShare = m.cachedInPrice != null ? cacheHitRate : 0;
+    return ((s.tokens.input * ((1 - cachedShare) * m.inPrice + cachedShare * (m.cachedInPrice || 0)) +
+      s.tokens.output * m.outPrice) / 1e6) * discount;
+  };
+  const mixedPlan = stepDetails.map((s) => {
+    const eligible = models.filter((m) => m.quality[s.qualityKey] >= 85 && s.tokens.input <= m.context);
+    const pool = eligible.length ? eligible : models.filter((m) => s.tokens.input <= m.context);
+    const pick = [...pool].sort((a, b) => stepCost(a, s) - stepCost(b, s))[0];
+    return { step: s.index, label: s.label, model: pick.name, modelId: pick.id, quality: pick.quality[s.qualityKey], monthlyCost: +(stepCost(pick, s) * tasksPerMonth).toFixed(2) };
+  });
+  const mixedMonthly = +mixedPlan.reduce((a, p) => a + p.monthlyCost, 0).toFixed(2);
+
+  let mixedRecommendation = null;
+  const top = results.find((r) => r.id === picks.bestQuality);
+  if (top && mixedMonthly < top.monthlyCost.mid * 0.85) {
+    const savings = Math.round((1 - mixedMonthly / top.monthlyCost.mid) * 100);
+    mixedRecommendation = `Mixing models per step (${mixedPlan.map((p) => `step ${p.step}: ${p.model}`).join(", ")}) costs ~$${mixedMonthly}/mo — ${savings}% less than running the whole workflow on ${top.name}.`;
+  }
+
+  return {
+    workflow: {
+      steps: stepDetails.map((s) => ({ step: s.index, description: s.description, type: s.taskType, label: s.label, confidence: s.confidence, tokens: { input: range(s.tokens.input), output: range(s.tokens.output) } })),
+      contextAccumulation: true
+    },
+    tokensPerRun: { input: range(totalInput), output: range(totalOutput) },
+    monthlyTokens: { input: range(totalInput * tasksPerMonth), output: range(totalOutput * tasksPerMonth) },
+    assumptions: { tasksPerMonth, cacheHitRate, batch, uncertainty: `±${RANGE * 100}%` },
+    results: results.sort((a, b) => b.valueScore - a.valueScore),
+    picks,
+    recommendation,
+    mixedPlan,
+    mixedMonthly,
+    mixedRecommendation,
+    disclaimer: "Heuristic pre-launch estimates. Ranges reflect ±35% uncertainty; calibrate against real usage before committing budgets."
+  };
+}
+
+/**
+ * Dedicated coding-task estimator: models the agentic loop behavior of
+ * AI coding (re-reading context, running tests, retrying) per task kind.
+ */
+const CODE_TASKS = {
+  bugfix:     { label: "Bug fix",                  inputTokens: 3000, outputTokens: 800,  loops: 3.0 },
+  feature:    { label: "New feature",              inputTokens: 5000, outputTokens: 2500, loops: 4.0 },
+  refactor:   { label: "Refactor",                 inputTokens: 6000, outputTokens: 3000, loops: 3.5 },
+  tests:      { label: "Write tests",              inputTokens: 4000, outputTokens: 2000, loops: 2.5 },
+  review:     { label: "Code review",              inputTokens: 6000, outputTokens: 1200, loops: 1.5 },
+  greenfield: { label: "New project from scratch", inputTokens: 1500, outputTokens: 4000, loops: 3.0 }
+};
+
+const CODEBASE_SIZE = { small: 0.6, medium: 1.0, large: 1.8 };
+const VERBOSE_LANGS = ["java", "c#", "csharp", "c++", "cpp", "objective-c"];
+const TERSE_LANGS = ["python", "ruby", "go"];
+
+function estimateCode(params, models) {
+  const { taskKind = "feature", language = "typescript", codebaseSize = "medium", tasksPerMonth = 200, cacheHitRate = 0, batch = false } = params;
+  const kind = CODE_TASKS[taskKind];
+  if (!kind) throw new Error(`taskKind must be one of: ${Object.keys(CODE_TASKS).join(", ")}`);
+  const sizeMult = CODEBASE_SIZE[codebaseSize];
+  if (!sizeMult) throw new Error(`codebaseSize must be one of: ${Object.keys(CODEBASE_SIZE).join(", ")}`);
+  if (tasksPerMonth <= 0) throw new Error("tasksPerMonth must be positive");
+
+  const lang = String(language).toLowerCase();
+  const langMult = VERBOSE_LANGS.includes(lang) ? 1.2 : TERSE_LANGS.includes(lang) ? 0.9 : 1.0;
+
+  const input = Math.round(kind.inputTokens * sizeMult * kind.loops);
+  const output = Math.round(kind.outputTokens * langMult * Math.max(1, kind.loops * 0.6));
+
+  const results = modelResults({
+    perTaskInput: input,
+    perTaskOutput: output,
+    tasksPerMonth, cacheHitRate, batch,
+    latencyCount: kind.loops,
+    qualityFor: (m) => m.quality.coding
+  }, models);
+
+  const { picks, recommendation } = picksAndRec(results);
+
+  return {
+    task: { type: "coding", label: `${kind.label} — ${language}, ${codebaseSize} codebase`, confidence: "high", loops: kind.loops },
+    tokensPerTask: { input: range(input), output: range(output) },
+    monthlyTokens: { input: range(input * tasksPerMonth), output: range(output * tasksPerMonth) },
+    assumptions: { taskKind, language, codebaseSize, tasksPerMonth, cacheHitRate, batch, agentLoops: kind.loops, uncertainty: `±${RANGE * 100}%` },
+    results: results.sort((a, b) => b.valueScore - a.valueScore),
+    picks,
+    recommendation,
+    disclaimer: "Heuristic pre-launch estimates. Ranges reflect ±35% uncertainty; calibrate against real usage before committing budgets."
+  };
+}
+
+module.exports = { estimate, estimateWorkflow, estimateCode, classifyTask, classifyTaskHeuristic, TASK_PROFILES, CODE_TASKS };

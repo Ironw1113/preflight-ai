@@ -40,6 +40,9 @@ cd server && npm test
 
 - `GET /api/models` — pricing/performance table
 - `POST /api/estimate` — body: `{ description, tasksPerMonth, avgInputWords, cacheHitRate (0–1), batch (bool) }`
+- `POST /api/estimate-workflow` — body: `{ steps: [{ description, avgInputWords }], tasksPerMonth, cacheHitRate, batch }`. Chain-aware: each step's input carries all previous steps' outputs (context accumulation). Returns per-step token breakdown, full comparison table, and a `mixedPlan` — the cheapest per-step model mix at quality ≥ 85, with savings vs running everything on the top model.
+- `GET /api/code-tasks` — available coding task kinds
+- `POST /api/estimate-code` — body: `{ taskKind (bugfix|feature|refactor|tests|review|greenfield), language, codebaseSize (small|medium|large), tasksPerMonth, cacheHitRate, batch }`. Models agentic coding loops (re-reading context, running tests, retrying) per task kind.
 
 ## How estimation works
 

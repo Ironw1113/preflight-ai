@@ -6,6 +6,28 @@ body {
   min-height: 100vh;
 }
 .wrap { max-width: 980px; margin: 0 auto; padding: 40px 20px 80px; }
+
+.tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 22px; }
+.tab {
+  background: #171e2e; color: #93a0b8; border: 1px solid #26304a;
+  border-radius: 999px; padding: 8px 20px; font-size: 0.9rem; cursor: pointer;
+}
+.tab:hover { color: #e8ecf4; }
+.tab.active { background: #3574e0; border-color: #3574e0; color: #fff; font-weight: 600; }
+
+.step { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.stepnum {
+  background: #1e2740; color: #5b9dff; font-weight: 700; font-size: 0.8rem;
+  min-width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+}
+.step input[type="text"] { flex: 1; background: #0f1420; color: #e8ecf4; border: 1px solid #2c3854; border-radius: 8px; padding: 9px 12px; font-size: 0.9rem; }
+.step .words { width: 90px; }
+.step .remove {
+  background: none; border: 1px solid #2c3854; color: #7686a3; border-radius: 8px;
+  width: 32px; height: 32px; cursor: pointer;
+}
+.step .remove:hover { color: #ff7a7a; border-color: #ff7a7a; }
+.chip.add { margin: 6px 0 16px; }
 header { text-align: center; margin-bottom: 28px; }
 h1 { font-size: 2.4rem; letter-spacing: -0.5px; }
 .accent { color: #5b9dff; }
