@@ -1,0 +1,16 @@
+{
+  "name": "preflight-server",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/estimator.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0"
+  }
+}

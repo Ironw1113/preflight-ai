@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: preflight-ai
+    runtime: node
+    plan: free
+    buildCommand: cd client && npm install && npm run build && cd ../server && npm install
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PREFLIGHT_CLASSIFIER_MODEL
+        value: claude-haiku-4-5-20251001
