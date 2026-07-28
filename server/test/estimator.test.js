@@ -134,6 +134,26 @@ test("code estimator rejects unknown task kind", () => {
   assert.throws(() => estimateCode({ taskKind: "nonsense" }, data.models));
 });
 
+test("uploaded file word count replaces the fixed input-token seed", () => {
+  const guessed = estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
+  const fromFile = estimateCode({ taskKind: "feature", tasksPerMonth: 100, fileWordCount: 4000 }, data.models);
+  assert.notStrictEqual(fromFile.tokensPerTask.input.mid, guessed.tokensPerTask.input.mid);
+  assert.strictEqual(fromFile.assumptions.fileWordCount, 4000);
+  assert.strictEqual(guessed.assumptions.fileWordCount, null);
+});
+
+test("a larger uploaded file produces a larger input estimate, all else equal", () => {
+  const smallFile = estimateCode({ taskKind: "refactor", tasksPerMonth: 100, fileWordCount: 500 }, data.models);
+  const bigFile = estimateCode({ taskKind: "refactor", tasksPerMonth: 100, fileWordCount: 8000 }, data.models);
+  assert.ok(bigFile.tokensPerTask.input.mid > smallFile.tokensPerTask.input.mid);
+});
+
+test("codebaseSize still scales on top of a real file's size", () => {
+  const small = estimateCode({ taskKind: "feature", codebaseSize: "small", tasksPerMonth: 100, fileWordCount: 2000 }, data.models);
+  const large = estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 100, fileWordCount: 2000 }, data.models);
+  assert.ok(large.tokensPerTask.input.mid > small.tokensPerTask.input.mid);
+});
+
 // --- variance bands / risk scenarios ---
 
 test("agentic tasks get very-high risk with 30x blowout", async () => {

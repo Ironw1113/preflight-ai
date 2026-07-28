@@ -538,7 +538,7 @@ function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch
 }
 
 function estimateCode(params, models, codingTools = []) {
-  const { taskKind = "feature", language = "typescript", codebaseSize = "medium", tasksPerMonth = 200, cacheHitRate = 0, batch = false } = params;
+  const { taskKind = "feature", language = "typescript", codebaseSize = "medium", tasksPerMonth = 200, cacheHitRate = 0, batch = false, fileWordCount } = params;
   const kind = CODE_TASKS[taskKind];
   if (!kind) throw new Error(`taskKind must be one of: ${Object.keys(CODE_TASKS).join(", ")}`);
   const sizeMult = CODEBASE_SIZE[codebaseSize];
@@ -548,7 +548,14 @@ function estimateCode(params, models, codingTools = []) {
   const lang = String(language).toLowerCase();
   const langMult = VERBOSE_LANGS.includes(lang) ? 1.2 : TERSE_LANGS.includes(lang) ? 0.9 : 1.0;
 
-  const input = Math.round(kind.inputTokens * sizeMult * kind.loops);
+  // When a real file is uploaded, its measured size replaces the fixed
+  // per-task-kind input seed (kind.inputTokens was always a guess at how
+  // much code/spec needs to be read) — sizeMult/loops still apply on top,
+  // since they model surrounding codebase context and agent retries, which
+  // don't go away just because we know this one file's size.
+  const baseInputTokens = fileWordCount != null ? Math.round(fileWordCount * WORDS_TO_TOKENS) + 400 : kind.inputTokens;
+
+  const input = Math.round(baseInputTokens * sizeMult * kind.loops);
   const output = Math.round(kind.outputTokens * langMult * Math.max(1, kind.loops * 0.6));
 
   const risk = RISK_TIERS.high; // coding agents loop and retry
@@ -575,7 +582,7 @@ function estimateCode(params, models, codingTools = []) {
     risk: { level: risk.level, p90Mult: risk.p90Mult, blowoutMult: risk.blowoutMult, warning: risk.warning },
     tokensPerTask: { input: range(input), output: range(output) },
     monthlyTokens: { input: range(input * tasksPerMonth), output: range(output * tasksPerMonth) },
-    assumptions: { taskKind, language, codebaseSize, tasksPerMonth, cacheHitRate, batch, agentLoops: kind.loops, uncertainty: `±${RANGE * 100}%` },
+    assumptions: { taskKind, language, codebaseSize, tasksPerMonth, cacheHitRate, batch, agentLoops: kind.loops, fileWordCount: fileWordCount ?? null, uncertainty: `±${RANGE * 100}%` },
     results: results.sort((a, b) => b.valueScore - a.valueScore),
     picks,
     recommendation,

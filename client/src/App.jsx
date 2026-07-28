@@ -551,11 +551,31 @@ function CodeMode() {
   const [tasksPerMonth, setTasksPerMonth] = useState(200);
   const [cacheHitRate, setCacheHitRate] = useState(0);
   const [batch, setBatch] = useState(false);
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
   const { result, loading, error, run } = useEstimate();
+
+  async function handleFile(selected) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", selected);
+      const res = await fetch("/api/extract-text", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to read file");
+      setFile(data);
+    } catch (err) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <>
-      <form className="card" onSubmit={(e) => { e.preventDefault(); run("/api/estimate-code", { taskKind, language, codebaseSize, tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch }); }}>
+      <form className="card" onSubmit={(e) => { e.preventDefault(); run("/api/estimate-code", { taskKind, language, codebaseSize, tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch, fileWordCount: file ? file.wordCount : undefined }); }}>
         <div className="grid">
           <div>
             <label>Coding task type</label>
@@ -570,7 +590,7 @@ function CodeMode() {
             </select>
           </div>
           <div>
-            <label>Codebase size</label>
+            <label>Codebase size{file && " (still applies — surrounding files this file's task will touch)"}</label>
             <select value={codebaseSize} onChange={(e) => setCodebaseSize(e.target.value)}>
               <option value="small">Small (&lt;10K lines)</option>
               <option value="medium">Medium (10–100K lines)</option>
@@ -578,8 +598,9 @@ function CodeMode() {
             </select>
           </div>
         </div>
+        <FileUpload file={file} onFile={handleFile} onClear={() => setFile(null)} uploading={uploading} uploadError={uploadError} />
         <SharedInputs {...{ tasksPerMonth, setTasksPerMonth, cacheHitRate, setCacheHitRate, batch, setBatch }} volumeLabel="Coding tasks per month" />
-        <button className="primary" disabled={loading}>{loading ? "Estimating…" : "Estimate coding cost across all AIs"}</button>
+        <button className="primary" disabled={loading || uploading}>{loading ? "Estimating…" : "Estimate coding cost across all AIs"}</button>
         {error && <p className="error">{error}</p>}
       </form>
 
@@ -595,7 +616,7 @@ function CodeMode() {
               <strong>{result.task.loops}×</strong>
             </div>
             <div>
-              <span className="label">Tokens per task (in / out)</span>
+              <span className="label">Tokens per task (in / out){result.assumptions?.fileWordCount != null && " — from uploaded file"}</span>
               <strong>{fmtTok(result.tokensPerTask.input.mid)} / {fmtTok(result.tokensPerTask.output.mid)}</strong>
             </div>
             <div>
@@ -609,7 +630,7 @@ function CodeMode() {
           <ResultsTable result={result} />
           <ApprovalRequestForm
             kind="code"
-            estimateParams={{ taskKind, language, codebaseSize, tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch }}
+            estimateParams={{ taskKind, language, codebaseSize, tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch, fileWordCount: file ? file.wordCount : undefined }}
             result={result}
             defaultName={result.task.label}
           />
