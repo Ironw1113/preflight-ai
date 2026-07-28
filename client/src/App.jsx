@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 const fmt = (n) =>
   n >= 1000 ? "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "$" + n.toFixed(2);
@@ -30,6 +30,19 @@ async function postJson(url, body) {
   return res.json();
 }
 
+const RISK_LABELS = { low: "Low variance", medium: "Medium variance", high: "High variance", "very-high": "Very high variance" };
+
+function RiskBanner({ risk }) {
+  if (!risk) return null;
+  return (
+    <div className={`risk-banner risk-${risk.level}`}>
+      <span className={`risk-chip risk-chip-${risk.level}`}>{RISK_LABELS[risk.level] || risk.level}</span>
+      <span className="risk-mults">P90 ≈ {risk.p90Mult}× median · blowout ≈ {risk.blowoutMult}× median</span>
+      {risk.warning && <p className="risk-text">⚠️ {risk.warning}</p>}
+    </div>
+  );
+}
+
 function ResultsTable({ result }) {
   const [sortBy, setSortBy] = useState("valueScore");
   const sorted = [...result.results].sort((a, b) =>
@@ -50,10 +63,11 @@ function ResultsTable({ result }) {
           <option value="secondsPerTask">Sort: fastest</option>
         </select>
       </div>
+      <RiskBanner risk={result.risk} />
       <table>
         <thead>
           <tr>
-            <th>Model</th><th>Quality</th><th>Monthly cost (range)</th><th>Cost / run</th><th>Time / run</th><th>Value</th>
+            <th>Model</th><th>Quality</th><th>Monthly P50</th><th>P90</th><th>Blowout</th><th>Cost / run</th><th>Time / run</th><th>Value</th>
           </tr>
         </thead>
         <tbody>
@@ -71,9 +85,11 @@ function ResultsTable({ result }) {
                 {m.quality}
               </td>
               <td>
-                <strong>{fmt(m.monthlyCost.mid)}</strong>
+                <strong>{fmt(m.scenarios ? m.scenarios.p50 : m.monthlyCost.mid)}</strong>
                 <span className="range">{fmt(m.monthlyCost.low)}–{fmt(m.monthlyCost.high)}</span>
               </td>
+              <td className="p90">{m.scenarios ? fmt(m.scenarios.p90) : "—"}</td>
+              <td className="blowout">{m.scenarios ? fmt(m.scenarios.blowout) : "—"}</td>
               <td>${m.costPerTask}</td>
               <td>{m.secondsPerTask}s</td>
               <td>{m.valueScore}</td>
@@ -81,7 +97,7 @@ function ResultsTable({ result }) {
           ))}
         </tbody>
       </table>
-      <p className="disclaimer">{result.disclaimer}</p>
+      <p className="disclaimer">P50 = median expectation. P90 = 9 in 10 months land at or below this — budget to it. Blowout = the runaway-agent scenario your budget cap should survive. {result.disclaimer}</p>
     </div>
   );
 }
@@ -180,6 +196,109 @@ function CodingToolsTable({ result }) {
   );
 }
 
+function ApprovalRequestForm({ kind, estimateParams, result, defaultName }) {
+  const modelOptions = [
+    ...(result.results || []).map((r) => ({ ...r, source: "model" })),
+    ...(result.codingTools || []).map((r) => ({ ...r, source: "codingTool" }))
+  ];
+  const defaultModel =
+    modelOptions.find((m) => m.id === result.picks?.bestBudget) ||
+    modelOptions.find((m) => m.id === result.codingToolPicks?.bestBudget) ||
+    modelOptions[0];
+  const keyOf = (m) => `${m.source}:${m.id}`;
+
+  const [open, setOpen] = useState(false);
+  const [modelKey, setModelKey] = useState(defaultModel ? keyOf(defaultModel) : "");
+  const [name, setName] = useState(defaultName);
+  const [ownerName, setOwnerName] = useState("");
+  const [p90Budget, setP90Budget] = useState(defaultModel?.scenarios?.p90 ?? defaultModel?.monthlyCost?.mid ?? 0);
+  const [blowoutCap, setBlowoutCap] = useState(defaultModel?.scenarios?.blowout ?? defaultModel?.monthlyCost?.mid ?? 0);
+  const [justification, setJustification] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(null);
+  const [error, setError] = useState(null);
+
+  function handleModelChange(key) {
+    setModelKey(key);
+    const m = modelOptions.find((o) => keyOf(o) === key);
+    if (m) {
+      setP90Budget(m.scenarios?.p90 ?? m.monthlyCost?.mid ?? 0);
+      setBlowoutCap(m.scenarios?.blowout ?? m.monthlyCost?.mid ?? 0);
+    }
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    const chosen = modelOptions.find((m) => keyOf(m) === modelKey);
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await postJson("/api/approvals", {
+        name, kind, estimateParams,
+        modelId: chosen.id, modelSource: chosen.source,
+        ownerName, p90Budget: +p90Budget, blowoutCap: +blowoutCap, justification
+      });
+      setSubmitted(created);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="chip add" onClick={() => setOpen(true)}>
+        📝 Request approval
+      </button>
+    );
+  }
+
+  return (
+    <div className="card">
+      <h2>Request budget approval</h2>
+      {submitted ? (
+        <>
+          <p className="quota-note ok">Approval request created — pending review in the Approvals tab.</p>
+          <a className="chip" href={`/api/approvals/${submitted.id}/print`} target="_blank" rel="noreferrer">
+            Open sign-off document ↗
+          </a>
+        </>
+      ) : (
+        <form onSubmit={submit}>
+          <label>Scenario name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} required />
+          <label>Model / tool to request</label>
+          <select value={modelKey} onChange={(e) => handleModelChange(e.target.value)}>
+            {modelOptions.map((m) => (
+              <option key={keyOf(m)} value={keyOf(m)}>{m.name} ({m.provider})</option>
+            ))}
+          </select>
+          <div className="grid">
+            <div>
+              <label>Requested by</label>
+              <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} required />
+            </div>
+            <div>
+              <label>P90 monthly budget ($)</label>
+              <input type="number" min="0" step="0.01" value={p90Budget} onChange={(e) => setP90Budget(e.target.value)} required />
+            </div>
+            <div>
+              <label>Blowout cap ($)</label>
+              <input type="number" min="0" step="0.01" value={blowoutCap} onChange={(e) => setBlowoutCap(e.target.value)} required />
+            </div>
+          </div>
+          <label>Business justification</label>
+          <textarea rows={3} value={justification} onChange={(e) => setJustification(e.target.value)} required />
+          <button className="primary" disabled={submitting}>{submitting ? "Submitting…" : "Submit for approval"}</button>{" "}
+          <button type="button" className="chip" onClick={() => setOpen(false)}>Cancel</button>
+          {error && <p className="error">{error}</p>}
+        </form>
+      )}
+    </div>
+  );
+}
+
 function SharedInputs({ tasksPerMonth, setTasksPerMonth, cacheHitRate, setCacheHitRate, batch, setBatch, volumeLabel, children }) {
   return (
     <div className="grid">
@@ -262,6 +381,12 @@ function SingleMode() {
           </div>
           {result.recommendation && <div className="rec">💡 {result.recommendation}</div>}
           <ResultsTable result={result} />
+          <ApprovalRequestForm
+            kind="single"
+            estimateParams={{ description, tasksPerMonth: +tasksPerMonth, avgInputWords: +avgInputWords, cacheHitRate: +cacheHitRate, batch }}
+            result={result}
+            defaultName={result.task.label}
+          />
         </>
       )}
     </>
@@ -352,6 +477,12 @@ function WorkflowMode() {
           )}
 
           <ResultsTable result={result} />
+          <ApprovalRequestForm
+            kind="workflow"
+            estimateParams={{ steps: steps.map((s) => ({ description: s.description, avgInputWords: +s.avgInputWords })), tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch }}
+            result={result}
+            defaultName={`Workflow — ${steps.length} steps`}
+          />
         </>
       )}
     </>
@@ -421,9 +552,103 @@ function CodeMode() {
           <CodingToolsTable result={result} />
           {result.codingToolRecommendation && <div className="rec">🧑‍💻 {result.codingToolRecommendation}</div>}
           <ResultsTable result={result} />
+          <ApprovalRequestForm
+            kind="code"
+            estimateParams={{ taskKind, language, codebaseSize, tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch }}
+            result={result}
+            defaultName={result.task.label}
+          />
         </>
       )}
     </>
+  );
+}
+
+const STATUS_LABELS = { pending: "Pending", approved: "Approved", rejected: "Rejected" };
+
+function ApprovalsMode() {
+  const [approvals, setApprovals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/approvals");
+      if (!res.ok) throw new Error("Failed to load approvals");
+      setApprovals(await res.json());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function decide(id, status) {
+    setBusyId(id);
+    try {
+      await postJson(`/api/approvals/${id}/decide`, { status });
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="tablehead">
+        <h2>Approval requests</h2>
+        <button type="button" className="chip" onClick={load}>Refresh</button>
+      </div>
+      {loading && <p className="disclaimer">Loading…</p>}
+      {error && <p className="error">{error}</p>}
+      {!loading && approvals.length === 0 && (
+        <p className="disclaimer">No approval requests yet. Request one from any results view (Single task, Multi-step workflow, or Code estimator).</p>
+      )}
+      {approvals.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>Scenario</th><th>Owner</th><th>Kind</th><th>P90 budget</th><th>Blowout cap</th><th>Status</th><th>Requested</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {approvals.map((a) => (
+              <tr key={a.id}>
+                <td>
+                  <strong>{a.name}</strong>
+                  <span className="provider">{a.modelName}</span>
+                </td>
+                <td>{a.ownerName}</td>
+                <td>{a.kind}</td>
+                <td>{fmt(a.p90Budget)}</td>
+                <td>{fmt(a.blowoutCap)}</td>
+                <td><span className={`status-pill status-${a.status}`}>{STATUS_LABELS[a.status] || a.status}</span></td>
+                <td>{new Date(a.createdAt).toLocaleDateString()}</td>
+                <td>
+                  {a.status === "pending" ? (
+                    <>
+                      <button type="button" className="chip approve" disabled={busyId === a.id} onClick={() => decide(a.id, "approved")}>Approve</button>{" "}
+                      <button type="button" className="chip reject" disabled={busyId === a.id} onClick={() => decide(a.id, "rejected")}>Reject</button>
+                    </>
+                  ) : (
+                    <a className="chip" href={`/api/approvals/${a.id}/print`} target="_blank" rel="noreferrer">Sign-off ↗</a>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
@@ -439,10 +664,12 @@ export default function App() {
         <button className={mode === "single" ? "tab active" : "tab"} onClick={() => setMode("single")}>Single task</button>
         <button className={mode === "workflow" ? "tab active" : "tab"} onClick={() => setMode("workflow")}>Multi-step workflow</button>
         <button className={mode === "code" ? "tab active" : "tab"} onClick={() => setMode("code")}>Code estimator</button>
+        <button className={mode === "approvals" ? "tab active" : "tab"} onClick={() => setMode("approvals")}>Approvals</button>
       </div>
       {mode === "single" && <SingleMode />}
       {mode === "workflow" && <WorkflowMode />}
       {mode === "code" && <CodeMode />}
+      {mode === "approvals" && <ApprovalsMode />}
     </div>
   );
 }

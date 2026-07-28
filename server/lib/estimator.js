@@ -82,6 +82,43 @@ const TASK_PROFILES = {
 const WORDS_TO_TOKENS = 1.35; // ~1.35 tokens per English word
 const RANGE = 0.35;           // ±35% uncertainty band on heuristic estimates
 
+/**
+ * Variance risk tiers. Deterministic tasks (extraction, translation) cluster
+ * tightly around the median; agentic tasks have a fat right tail — agents
+ * retry, re-send context, and take unpredictable paths. P90 = 9-in-10 months
+ * land at or below this; blowout = the runaway scenario budgets should
+ * survive. Sources for the figures cited in the warnings below (verified
+ * July 2026):
+ *  - Stanford Digital Economy Lab, "How Do AI Agents Spend Your Money?":
+ *    up to 30x variance in total tokens for the same task/agent across runs
+ *    on SWE-bench Verified.
+ *    https://digitaleconomy.stanford.edu/publication/how-do-ai-agents-spend-your-money-analyzing-and-predicting-token-consumption-in-agentic-coding-tasks/
+ *  - Goldman Sachs, "Decoding the Agentic Economy" (May 2026): projects
+ *    global token demand up 24x by 2030, driven by always-on agent usage.
+ *    https://www.goldmansachs.com/insights/articles/ai-agents-forecast-to-boost-tech-cash-flow-as-usage-soars
+ *  - Uber: CTO confirmed to The Information that Claude Code adoption
+ *    across ~5,000 engineers exhausted the 2026 AI budget by April,
+ *    prompting a $1,500/mo per-employee cap.
+ *    https://www.forbes.com/sites/janakirammsv/2026/05/17/uber-burns-its-2026-ai-budget-in-four-months-on-claude-code/
+ *    https://www.cfodive.com/news/ubers-finance-team-overtaken-engineering-ai-use/821513/
+ */
+const RISK_TIERS = {
+  low:      { level: "low",       p90Mult: 1.3, blowoutMult: 2,
+    warning: null },
+  medium:   { level: "medium",    p90Mult: 1.6, blowoutMult: 3,
+    warning: null },
+  high:     { level: "high",      p90Mult: 2.5, blowoutMult: 8,
+    warning: "Coding agents retry, re-read context, and run tests in loops — real-world costs regularly land 2–8× the median estimate. Budget to the P90, not the P50." },
+  veryHigh: { level: "very-high", p90Mult: 4.0, blowoutMult: 30,
+    warning: "Agentic workflows are the #1 source of AI budget blowouts: agents burn 5–30× the tokens of a single call, and per-task variance of ~30× has been measured in production. Companies (including Uber) have exhausted annual AI budgets months early on workloads like this. Budget to the P90 and cap runs at the blowout figure." }
+};
+const TASK_RISK = {
+  coding: "high", agentic: "veryHigh",
+  chat: "medium", writing: "medium", rag: "medium",
+  summarization: "low", extraction: "low", translation: "low"
+};
+const RISK_ORDER = ["low", "medium", "high", "veryHigh"];
+
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const CLASSIFIER_MODEL = process.env.PREFLIGHT_CLASSIFIER_MODEL || "claude-haiku-4-5-20251001";
 
@@ -188,7 +225,7 @@ function range(v) {
  * qualityFor(m) lets callers score quality per task, per workflow mix, etc.
  * latencyCount = number of sequential API calls per run (workflow steps, agent loops).
  */
-function modelResults({ perTaskInput, perTaskOutput, tasksPerMonth, cacheHitRate = 0, batch = false, qualityFor, latencyCount = 1 }, models) {
+function modelResults({ perTaskInput, perTaskOutput, tasksPerMonth, cacheHitRate = 0, batch = false, qualityFor, latencyCount = 1, risk = RISK_TIERS.medium }, models) {
   const monthlyInput = perTaskInput * tasksPerMonth;
   const monthlyOutput = perTaskOutput * tasksPerMonth;
 
@@ -216,6 +253,13 @@ function modelResults({ perTaskInput, perTaskOutput, tasksPerMonth, cacheHitRate
         low: +(monthlyCost * (1 - RANGE)).toFixed(2),
         mid: +monthlyCost.toFixed(2),
         high: +(monthlyCost * (1 + RANGE)).toFixed(2)
+      },
+      // variance-honest scenarios: p50 = median expectation, p90 = 9-in-10
+      // months land at or below, blowout = the runaway-agent scenario
+      scenarios: {
+        p50: +monthlyCost.toFixed(2),
+        p90: +(monthlyCost * risk.p90Mult).toFixed(2),
+        blowout: +(monthlyCost * risk.blowoutMult).toFixed(2)
       },
       costPerTask: +(monthlyCost / tasksPerMonth).toFixed(4),
       // value = quality points per dollar (log-damped so free-tier junk doesn't win)
@@ -262,17 +306,20 @@ async function estimate(params, models) {
   const profile = TASK_PROFILES[taskType];
   const perTask = tokensForTask(profile, { avgInputWords });
 
+  const risk = RISK_TIERS[TASK_RISK[taskType] || "medium"];
   const results = modelResults({
     perTaskInput: perTask.input,
     perTaskOutput: perTask.output,
     tasksPerMonth, cacheHitRate, batch,
-    qualityFor: (m) => m.quality[profile.qualityKey]
+    qualityFor: (m) => m.quality[profile.qualityKey],
+    risk
   }, models);
 
   const { picks, recommendation } = picksAndRec(results);
 
   return {
     task: { type: taskType, label: profile.label, confidence },
+    risk: { level: risk.level, p90Mult: risk.p90Mult, blowoutMult: risk.blowoutMult, warning: risk.warning },
     tokensPerTask: { input: range(perTask.input), output: range(perTask.output) },
     monthlyTokens: { input: range(perTask.input * tasksPerMonth), output: range(perTask.output * tasksPerMonth) },
     assumptions: { tasksPerMonth, avgInputWords, cacheHitRate, batch, wordsToTokens: WORDS_TO_TOKENS, uncertainty: `±${RANGE * 100}%` },
@@ -319,13 +366,20 @@ async function estimateWorkflow(params, models) {
   const totalOutput = stepDetails.reduce((a, s) => a + s.tokens.output, 0);
   const totalWeight = stepDetails.reduce((a, s) => a + s.tokens.input + s.tokens.output, 0);
 
+  // workflow risk: worst step tier, bumped one level because chained steps
+  // compound each other's variance (a retry in step 1 re-runs everything after)
+  const maxIdx = Math.max(...stepDetails.map((s) => RISK_ORDER.indexOf(TASK_RISK[s.taskType] || "medium")));
+  const bumpedIdx = Math.min(RISK_ORDER.length - 1, stepDetails.length > 1 ? maxIdx + 1 : maxIdx);
+  const risk = RISK_TIERS[RISK_ORDER[bumpedIdx]];
+
   const results = modelResults({
     perTaskInput: totalInput,
     perTaskOutput: totalOutput,
     tasksPerMonth, cacheHitRate, batch,
     latencyCount: stepDetails.length,
     // token-weighted average quality across the step categories
-    qualityFor: (m) => stepDetails.reduce((a, s) => a + m.quality[s.qualityKey] * (s.tokens.input + s.tokens.output), 0) / totalWeight
+    qualityFor: (m) => stepDetails.reduce((a, s) => a + m.quality[s.qualityKey] * (s.tokens.input + s.tokens.output), 0) / totalWeight,
+    risk
   }, models);
 
   const { picks, recommendation } = picksAndRec(results);
@@ -357,6 +411,7 @@ async function estimateWorkflow(params, models) {
       steps: stepDetails.map((s) => ({ step: s.index, description: s.description, type: s.taskType, label: s.label, confidence: s.confidence, tokens: { input: range(s.tokens.input), output: range(s.tokens.output) } })),
       contextAccumulation: true
     },
+    risk: { level: risk.level, p90Mult: risk.p90Mult, blowoutMult: risk.blowoutMult, warning: risk.warning || RISK_TIERS.high.warning },
     tokensPerRun: { input: range(totalInput), output: range(totalOutput) },
     monthlyTokens: { input: range(totalInput * tasksPerMonth), output: range(totalOutput * tasksPerMonth) },
     assumptions: { tasksPerMonth, cacheHitRate, batch, uncertainty: `±${RANGE * 100}%` },
@@ -406,7 +461,7 @@ function quotaWindowLabel(hours) {
  * Quota sizes are heuristic assumptions (providers rarely publish exact
  * token-equivalent limits) — treat utilization as directional, not exact.
  */
-function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch, latencyCount }, models, codingTools) {
+function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch, latencyCount, risk = RISK_TIERS.high }, models, codingTools) {
   const results = codingTools.map((tool) => {
     const underlying = tool.underlyingModel ? models.find((m) => m.id === tool.underlyingModel) : null;
     const quality = tool.qualityOverride ?? underlying?.quality.coding ?? 80;
@@ -441,7 +496,15 @@ function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch
       utilizationPct > 100 ? +(tool.quotaWindowHours / (utilizationPct / 100)).toFixed(1) : tool.quotaWindowHours;
 
     const monthlyPrice = tool.monthlyPrice * seatsNeeded;
+    // flat subscriptions absorb token variance until the quota runs out —
+    // scenario cost only moves when higher volume forces more seats
+    const seatsAt = (mult) => Math.max(1, Math.ceil((utilizationPct * mult) / 100));
     return {
+      scenarios: {
+        p50: monthlyPrice,
+        p90: tool.monthlyPrice * seatsAt(risk.p90Mult),
+        blowout: tool.monthlyPrice * seatsAt(risk.blowoutMult)
+      },
       id: tool.id,
       name: tool.name,
       provider: tool.provider,
@@ -482,18 +545,20 @@ function estimateCode(params, models, codingTools = []) {
   const input = Math.round(kind.inputTokens * sizeMult * kind.loops);
   const output = Math.round(kind.outputTokens * langMult * Math.max(1, kind.loops * 0.6));
 
+  const risk = RISK_TIERS.high; // coding agents loop and retry
   const results = modelResults({
     perTaskInput: input,
     perTaskOutput: output,
     tasksPerMonth, cacheHitRate, batch,
     latencyCount: kind.loops,
-    qualityFor: (m) => m.quality.coding
+    qualityFor: (m) => m.quality.coding,
+    risk
   }, models);
 
   const { picks, recommendation } = picksAndRec(results);
 
   const codingToolResults = estimateCodingTools(
-    { input, output, tasksPerMonth, cacheHitRate, batch, latencyCount: kind.loops },
+    { input, output, tasksPerMonth, cacheHitRate, batch, latencyCount: kind.loops, risk },
     models,
     codingTools
   );
@@ -501,6 +566,7 @@ function estimateCode(params, models, codingTools = []) {
 
   return {
     task: { type: "coding", label: `${kind.label} — ${language}, ${codebaseSize} codebase`, confidence: "high", loops: kind.loops },
+    risk: { level: risk.level, p90Mult: risk.p90Mult, blowoutMult: risk.blowoutMult, warning: risk.warning },
     tokensPerTask: { input: range(input), output: range(output) },
     monthlyTokens: { input: range(input * tasksPerMonth), output: range(output * tasksPerMonth) },
     assumptions: { taskKind, language, codebaseSize, tasksPerMonth, cacheHitRate, batch, agentLoops: kind.loops, uncertainty: `±${RANGE * 100}%` },

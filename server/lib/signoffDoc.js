@@ -1,0 +1,104 @@
+/**
+ * Renders a one-page, print-optimized sign-off document for an approval.
+ * There's no server-side PDF library dependency here on purpose — the
+ * browser's own "Print -> Save as PDF" produces a perfectly good PDF from
+ * clean HTML, and it's one fewer dependency to maintain.
+ */
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const fmt = (n) => "$" + Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
+
+function statusLabel(status) {
+  if (status === "approved") return "Approved";
+  if (status === "rejected") return "Rejected";
+  return "Pending decision";
+}
+
+function renderSignoffDoc(approval) {
+  const { name, kind, modelName, ownerName, p90Budget, blowoutCap, justification, status, createdAt, decidedAt, decisionNote, result } = approval;
+  const chosen =
+    (kind === "code" ? [...(result.results || []), ...(result.codingTools || [])] : result.results || []).find(
+      (r) => r.id === approval.modelId
+    ) || {};
+  const scenarios = chosen.scenarios || null;
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Budget sign-off — ${esc(name)}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { background: #fff; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #111; max-width: 720px; margin: 40px auto; padding: 0 24px; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .sub { color: #555; margin-bottom: 24px; }
+  .status { display: inline-block; padding: 3px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; margin-bottom: 24px; }
+  .status.pending { background: #fdf1d6; color: #8a6300; }
+  .status.approved { background: #dcf5e3; color: #1a7a3c; }
+  .status.rejected { background: #fbe0e0; color: #a32626; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 22px; }
+  td { padding: 7px 0; border-bottom: 1px solid #e5e5e5; vertical-align: top; }
+  td.k { color: #666; width: 200px; }
+  .scenarios { display: flex; gap: 12px; margin-bottom: 22px; }
+  .scenario-box { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 10px 14px; }
+  .scenario-box .label { font-size: 0.72rem; color: #666; }
+  .scenario-box strong { display: block; font-size: 1.15rem; }
+  .justification { border: 1px solid #ddd; border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; margin-bottom: 22px; }
+  .sig-row { display: flex; justify-content: space-between; margin-top: 48px; }
+  .sig-line { border-top: 1px solid #333; width: 260px; padding-top: 6px; font-size: 0.8rem; color: #555; }
+  .print-btn { margin-bottom: 24px; }
+  .print-btn button { padding: 8px 16px; font-size: 0.9rem; cursor: pointer; }
+  .disclaimer { font-size: 0.72rem; color: #888; margin-top: 30px; }
+  @media print { .print-btn { display: none; } body { margin: 0; } }
+</style>
+</head>
+<body>
+  <div class="print-btn"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <h1>Budget sign-off — ${esc(name)}</h1>
+  <p class="sub">Preflight AI · ${esc(kind)} estimate</p>
+  <span class="status ${esc(status)}">${esc(statusLabel(status))}</span>
+
+  <table>
+    <tr><td class="k">Requested by</td><td>${esc(ownerName)}</td></tr>
+    <tr><td class="k">Chosen model / tool</td><td>${esc(modelName)}</td></tr>
+    <tr><td class="k">Requested</td><td>${esc(fmtDate(createdAt))}</td></tr>
+    <tr><td class="k">Decided</td><td>${esc(fmtDate(decidedAt))}</td></tr>
+    ${decisionNote ? `<tr><td class="k">Decision note</td><td>${esc(decisionNote)}</td></tr>` : ""}
+  </table>
+
+  ${
+    scenarios
+      ? `<div class="scenarios">
+      <div class="scenario-box"><span class="label">P50 (median)</span><strong>${fmt(scenarios.p50)}/mo</strong></div>
+      <div class="scenario-box"><span class="label">P90 budget (requested)</span><strong>${fmt(p90Budget)}/mo</strong></div>
+      <div class="scenario-box"><span class="label">Blowout cap (requested)</span><strong>${fmt(blowoutCap)}/mo</strong></div>
+    </div>`
+      : `<div class="scenarios">
+      <div class="scenario-box"><span class="label">P90 budget (requested)</span><strong>${fmt(p90Budget)}/mo</strong></div>
+      <div class="scenario-box"><span class="label">Blowout cap (requested)</span><strong>${fmt(blowoutCap)}/mo</strong></div>
+    </div>`
+  }
+
+  <h3>Business justification</h3>
+  <div class="justification">${esc(justification)}</div>
+
+  <div class="sig-row">
+    <div class="sig-line">Approver signature</div>
+    <div class="sig-line">Date</div>
+  </div>
+
+  <p class="disclaimer">
+    Cost figures are heuristic pre-launch estimates, not guarantees (±35% uncertainty on the underlying token model).
+    Budget to the P90 figure; the blowout cap is the runaway-scenario ceiling this request should not exceed.
+    Generated by Preflight AI.
+  </p>
+</body>
+</html>`;
+}
+
+module.exports = { renderSignoffDoc };

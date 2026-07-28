@@ -134,6 +134,50 @@ test("code estimator rejects unknown task kind", () => {
   assert.throws(() => estimateCode({ taskKind: "nonsense" }, data.models));
 });
 
+// --- variance bands / risk scenarios ---
+
+test("agentic tasks get very-high risk with 30x blowout", async () => {
+  const r = await estimate({ description: "Automate a multi-step research agent workflow with browsing", tasksPerMonth: 100 }, data.models);
+  assert.strictEqual(r.risk.level, "very-high");
+  assert.strictEqual(r.risk.blowoutMult, 30);
+  assert.ok(r.risk.warning);
+});
+
+test("extraction tasks get low risk, no warning", async () => {
+  const r = await estimate({ description: "Extract line items from vendor invoices into JSON", tasksPerMonth: 100 }, data.models);
+  assert.strictEqual(r.risk.level, "low");
+  assert.strictEqual(r.risk.warning, null);
+});
+
+test("scenarios ordered p50 <= p90 <= blowout on every model", async () => {
+  const r = await estimate({ description: "chatbot for customer support", tasksPerMonth: 1000 }, data.models);
+  for (const m of r.results) {
+    assert.ok(m.scenarios, `${m.name} has scenarios`);
+    assert.ok(m.scenarios.p50 <= m.scenarios.p90 && m.scenarios.p90 <= m.scenarios.blowout);
+    assert.strictEqual(m.scenarios.p50, m.monthlyCost.mid);
+  }
+});
+
+test("workflow risk is bumped above the worst step tier", async () => {
+  const r = await estimateWorkflow({
+    steps: [
+      { description: "Extract fields from the document" },
+      { description: "Summarize the extracted fields" }
+    ],
+    tasksPerMonth: 100
+  }, data.models);
+  // both steps are low-risk, chaining bumps to medium
+  assert.strictEqual(r.risk.level, "medium");
+  assert.ok(r.risk.warning, "workflow always carries a warning");
+});
+
+test("code estimator carries high risk and scenarios", () => {
+  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
+  assert.strictEqual(r.risk.level, "high");
+  const m = r.results[0];
+  assert.ok(Math.abs(m.scenarios.blowout - m.scenarios.p50 * 8) < 0.1, "blowout ≈ 8× p50");
+});
+
 // --- coding agent tools (Claude Code, Codex CLI, Copilot, Cursor) ---
 
 test("coding tools list is omitted-safe when not provided", () => {
