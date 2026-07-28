@@ -55,6 +55,7 @@ cd server && npm test
 - `GET /api/approvals/:id` — full detail, including the saved estimate snapshot.
 - `POST /api/approvals/:id/decide` — body: `{ status (approved|rejected), decisionNote? }`. Only valid from `pending`; errors if already decided.
 - `GET /api/approvals/:id/print` — one-page, print-optimized sign-off document (scenario, P50/P90/blowout, requested budget, justification, signature lines). Use the browser's own Print → Save as PDF; no server-side PDF library.
+- `GET /api/approvals/:id/guardrails/:format` — `format` is `litellm` (config.yaml budget block), `portkey` (budget JSON), or `webhook` (generic JSON). Only available once the request is `approved` (400 otherwise). Hard cap (`max_budget` / `budgetLimit.value`) is set to the blowout figure; alert thresholds are 80%/100% of the approved P90 budget. Add `?download=1` for a file download (`Content-Disposition: attachment`); omit it to fetch raw text for copy-to-clipboard. These are starting-point templates — LiteLLM/Portkey field names are only used where we're confident they're current; anything else ships as a comment, not a guess dressed up as their schema.
 
 ## How estimation works
 

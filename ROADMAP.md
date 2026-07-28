@@ -8,15 +8,10 @@ Derived from market research (July 2026): agents burn 5–30× tokens with ~30×
 - [x] Claude-powered task classification with heuristic fallback
 - [x] Variance bands: P50/P90/blowout scenarios, RISK_TIERS per task type, risk banners in UI
 - [x] Approval workflow: save a scenario + budget request (owner, P90 budget, blowout cap, justification) via `server/lib/approvals.js` (SQLite through `node:sqlite`, no accounts yet); approve/reject with timestamped audit trail in the "Approvals" tab; one-page print/PDF sign-off doc at `GET /api/approvals/:id/print` (browser print-to-PDF, no PDF library dependency)
+- [x] Professional site: landing page (`client/src/Landing.jsx` — hero with pre-approval positioning, market-stat cards, P50/P90/blowout explainer, Predict→Approve→Enforce→Learn, feature grid, pricing tiers, footer), sticky `SiteNav` shared with the app, hash routing (`#/app`), Inter typography, SEO meta description
+- [x] Guardrail config export: `server/lib/guardrailConfig.js` generates a LiteLLM `config.yaml` block (hard `max_budget` at the blowout cap, alert thresholds at 80%/100% of the approved P90 budget), a Portkey budget JSON, and a generic webhook JSON — all gated to `status === "approved"` requests via `GET /api/approvals/:id/guardrails/:format` (`?download=1` for a file download, otherwise raw text for copy-to-clipboard). Field names are only used where confident of the current schema; everything else ships as comments, with a "verify before applying" disclaimer. Inline "Guardrails" panel (3 cards, copy + download each) on approved rows in the Approvals tab.
 
-## 2. Guardrail config export (the "Enforce" stage — next up)
-From an approved budget, generate config the user's gateway can enforce:
-- LiteLLM `config.yaml` budget block (per-team budget, alert thresholds at 80%/100%)
-- Portkey budget JSON
-- Generic webhook/JSON format
-- Copy-to-clipboard + download from the approval detail view
-
-## 3. Bring-your-own-eval (the "Learn" stage)
+## 3. Bring-your-own-eval (the "Learn" stage — next up)
 - User pastes 3–10 real sample tasks + their API keys (keys held in memory only, never stored)
 - Run samples across selected models, capture actual token counts + outputs side by side
 - Show measured tokens vs our predicted range; let the user grade outputs A/B/C

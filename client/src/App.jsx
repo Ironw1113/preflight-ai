@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import Landing, { SiteNav } from "./Landing.jsx";
 
 const fmt = (n) =>
   n >= 1000 ? "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "$" + n.toFixed(2);
@@ -565,12 +566,62 @@ function CodeMode() {
 }
 
 const STATUS_LABELS = { pending: "Pending", approved: "Approved", rejected: "Rejected" };
+const GUARDRAIL_FORMATS = [
+  { id: "litellm", label: "LiteLLM config.yaml" },
+  { id: "portkey", label: "Portkey budget JSON" },
+  { id: "webhook", label: "Generic webhook JSON" }
+];
+
+function GuardrailPanel({ approvalId }) {
+  const [contents, setContents] = useState({});
+  const [loading, setLoading] = useState({});
+  const [copied, setCopied] = useState(null);
+
+  useEffect(() => {
+    GUARDRAIL_FORMATS.forEach(async (f) => {
+      setLoading((l) => ({ ...l, [f.id]: true }));
+      try {
+        const res = await fetch(`/api/approvals/${approvalId}/guardrails/${f.id}`);
+        const text = await res.text();
+        setContents((c) => ({ ...c, [f.id]: text }));
+      } finally {
+        setLoading((l) => ({ ...l, [f.id]: false }));
+      }
+    });
+  }, [approvalId]);
+
+  async function copy(id) {
+    await navigator.clipboard.writeText(contents[id] || "");
+    setCopied(id);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
+  return (
+    <div className="guardrail-panel">
+      {GUARDRAIL_FORMATS.map((f) => (
+        <div className="guardrail-card" key={f.id}>
+          <div className="guardrail-head">
+            <strong>{f.label}</strong>
+            <div>
+              <button type="button" className="chip" onClick={() => copy(f.id)} disabled={!contents[f.id]}>
+                {copied === f.id ? "Copied!" : "Copy"}
+              </button>{" "}
+              <a className="chip" href={`/api/approvals/${approvalId}/guardrails/${f.id}?download=1`} download>Download</a>
+            </div>
+          </div>
+          <pre className="guardrail-pre">{loading[f.id] ? "Loading…" : contents[f.id] || ""}</pre>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function ApprovalsMode() {
   const [approvals, setApprovals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -622,28 +673,44 @@ function ApprovalsMode() {
           </thead>
           <tbody>
             {approvals.map((a) => (
-              <tr key={a.id}>
-                <td>
-                  <strong>{a.name}</strong>
-                  <span className="provider">{a.modelName}</span>
-                </td>
-                <td>{a.ownerName}</td>
-                <td>{a.kind}</td>
-                <td>{fmt(a.p90Budget)}</td>
-                <td>{fmt(a.blowoutCap)}</td>
-                <td><span className={`status-pill status-${a.status}`}>{STATUS_LABELS[a.status] || a.status}</span></td>
-                <td>{new Date(a.createdAt).toLocaleDateString()}</td>
-                <td>
-                  {a.status === "pending" ? (
-                    <>
-                      <button type="button" className="chip approve" disabled={busyId === a.id} onClick={() => decide(a.id, "approved")}>Approve</button>{" "}
-                      <button type="button" className="chip reject" disabled={busyId === a.id} onClick={() => decide(a.id, "rejected")}>Reject</button>
-                    </>
-                  ) : (
-                    <a className="chip" href={`/api/approvals/${a.id}/print`} target="_blank" rel="noreferrer">Sign-off ↗</a>
-                  )}
-                </td>
-              </tr>
+              <React.Fragment key={a.id}>
+                <tr>
+                  <td>
+                    <strong>{a.name}</strong>
+                    <span className="provider">{a.modelName}</span>
+                  </td>
+                  <td>{a.ownerName}</td>
+                  <td>{a.kind}</td>
+                  <td>{fmt(a.p90Budget)}</td>
+                  <td>{fmt(a.blowoutCap)}</td>
+                  <td><span className={`status-pill status-${a.status}`}>{STATUS_LABELS[a.status] || a.status}</span></td>
+                  <td>{new Date(a.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    {a.status === "pending" ? (
+                      <>
+                        <button type="button" className="chip approve" disabled={busyId === a.id} onClick={() => decide(a.id, "approved")}>Approve</button>{" "}
+                        <button type="button" className="chip reject" disabled={busyId === a.id} onClick={() => decide(a.id, "rejected")}>Reject</button>
+                      </>
+                    ) : (
+                      <>
+                        <a className="chip" href={`/api/approvals/${a.id}/print`} target="_blank" rel="noreferrer">Sign-off ↗</a>{" "}
+                        {a.status === "approved" && (
+                          <button type="button" className="chip" onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}>
+                            {expandedId === a.id ? "Hide guardrails" : "Guardrails"}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </td>
+                </tr>
+                {expandedId === a.id && (
+                  <tr>
+                    <td colSpan={8}>
+                      <GuardrailPanel approvalId={a.id} />
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -652,24 +719,40 @@ function ApprovalsMode() {
   );
 }
 
-export default function App() {
+function EstimatorApp() {
   const [mode, setMode] = useState("single");
   return (
-    <div className="wrap">
-      <header>
-        <h1>Preflight <span className="accent">AI</span></h1>
-        <p className="tagline">Know your AI bill before you run the task.</p>
-      </header>
-      <div className="tabs">
-        <button className={mode === "single" ? "tab active" : "tab"} onClick={() => setMode("single")}>Single task</button>
-        <button className={mode === "workflow" ? "tab active" : "tab"} onClick={() => setMode("workflow")}>Multi-step workflow</button>
-        <button className={mode === "code" ? "tab active" : "tab"} onClick={() => setMode("code")}>Code estimator</button>
-        <button className={mode === "approvals" ? "tab active" : "tab"} onClick={() => setMode("approvals")}>Approvals</button>
+    <>
+      <SiteNav inApp />
+      <div className="wrap">
+        <header>
+          <h1>Preflight <span className="accent">AI</span></h1>
+          <p className="tagline">Know your AI bill before you run the task.</p>
+        </header>
+        <div className="tabs">
+          <button className={mode === "single" ? "tab active" : "tab"} onClick={() => setMode("single")}>Single task</button>
+          <button className={mode === "workflow" ? "tab active" : "tab"} onClick={() => setMode("workflow")}>Multi-step workflow</button>
+          <button className={mode === "code" ? "tab active" : "tab"} onClick={() => setMode("code")}>Code estimator</button>
+          <button className={mode === "approvals" ? "tab active" : "tab"} onClick={() => setMode("approvals")}>Approvals</button>
+        </div>
+        {mode === "single" && <SingleMode />}
+        {mode === "workflow" && <WorkflowMode />}
+        {mode === "code" && <CodeMode />}
+        {mode === "approvals" && <ApprovalsMode />}
       </div>
-      {mode === "single" && <SingleMode />}
-      {mode === "workflow" && <WorkflowMode />}
-      {mode === "code" && <CodeMode />}
-      {mode === "approvals" && <ApprovalsMode />}
-    </div>
+    </>
   );
+}
+
+export default function App() {
+  const [route, setRoute] = useState(window.location.hash);
+  useEffect(() => {
+    const onHash = () => {
+      setRoute(window.location.hash);
+      if (window.location.hash.startsWith("#/")) window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  return route.startsWith("#/app") ? <EstimatorApp /> : <Landing />;
 }
