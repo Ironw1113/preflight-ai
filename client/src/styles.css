@@ -261,3 +261,14 @@ td .provider { display: block; font-size: 0.72rem; color: #7686a3; }
   white-space: pre-wrap; word-break: break-word; color: #aab6d0; margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+.file-upload { margin-bottom: 16px; }
+.file-upload input[type="file"] {
+  background: #0f1420; border: 1px dashed #2c3854; border-radius: 8px;
+  padding: 10px 12px; font-size: 0.85rem; color: #93a0b8; width: 100%;
+}
+.file-chip {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #0f1420; border: 1px solid #2c3854; border-radius: 8px;
+  padding: 10px 12px; font-size: 0.85rem;
+}

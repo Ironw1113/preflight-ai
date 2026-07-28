@@ -334,17 +334,70 @@ function useEstimate() {
   return { result, loading, error, run };
 }
 
+const UPLOAD_ACCEPT = ".txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.rb,.go,.java,.c,.cpp,.h,.hpp,.cs,.php,.html,.css,.yml,.yaml,.xml,.sql,.sh,.pdf,.docx,.xlsx,.xls";
+
+function FileUpload({ file, onFile, onClear, uploading, uploadError }) {
+  return (
+    <div className="file-upload">
+      <label>Or upload the file you want the task run on (optional)</label>
+      {!file ? (
+        <input
+          type="file"
+          accept={UPLOAD_ACCEPT}
+          disabled={uploading}
+          onChange={(e) => e.target.files[0] && onFile(e.target.files[0])}
+        />
+      ) : (
+        <div className="file-chip">
+          <span>📎 {file.fileName} — {file.wordCount.toLocaleString()} words</span>
+          <button type="button" className="chip" onClick={onClear}>Remove</button>
+        </div>
+      )}
+      {uploading && <p className="disclaimer">Reading file…</p>}
+      {uploadError && <p className="error">{uploadError}</p>}
+    </div>
+  );
+}
+
 function SingleMode() {
   const [description, setDescription] = useState("");
   const [tasksPerMonth, setTasksPerMonth] = useState(1000);
   const [avgInputWords, setAvgInputWords] = useState(500);
   const [cacheHitRate, setCacheHitRate] = useState(0);
   const [batch, setBatch] = useState(false);
+  const [file, setFile] = useState(null);
+  const [fileSnippet, setFileSnippet] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
   const { result, loading, error, run } = useEstimate();
+
+  async function handleFile(selected) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", selected);
+      const res = await fetch("/api/extract-text", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to read file");
+      setFile(data);
+      setFileSnippet(data.snippet);
+      setAvgInputWords(data.wordCount || 1);
+    } catch (err) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function clearFile() {
+    setFile(null);
+    setFileSnippet(null);
+  }
 
   return (
     <>
-      <form className="card" onSubmit={(e) => { e.preventDefault(); run("/api/estimate", { description, tasksPerMonth: +tasksPerMonth, avgInputWords: +avgInputWords, cacheHitRate: +cacheHitRate, batch }); }}>
+      <form className="card" onSubmit={(e) => { e.preventDefault(); run("/api/estimate", { description, tasksPerMonth: +tasksPerMonth, avgInputWords: +avgInputWords, cacheHitRate: +cacheHitRate, batch, fileSnippet }); }}>
         <label>Describe the task you want AI to do</label>
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} required
           placeholder="e.g. Summarize 500 customer support tickets into a daily digest" />
@@ -353,13 +406,14 @@ function SingleMode() {
             <button type="button" key={ex} className="chip" onClick={() => setDescription(ex)}>{ex}</button>
           ))}
         </div>
+        <FileUpload file={file} onFile={handleFile} onClear={clearFile} uploading={uploading} uploadError={uploadError} />
         <SharedInputs {...{ tasksPerMonth, setTasksPerMonth, cacheHitRate, setCacheHitRate, batch, setBatch }} volumeLabel="Tasks per month">
           <div>
-            <label>Avg input size (words)</label>
+            <label>Avg input size (words){file && " — auto-detected from file"}</label>
             <input type="number" min="1" value={avgInputWords} onChange={(e) => setAvgInputWords(e.target.value)} />
           </div>
         </SharedInputs>
-        <button className="primary" disabled={loading}>{loading ? "Estimating…" : "Estimate cost across platforms"}</button>
+        <button className="primary" disabled={loading || uploading}>{loading ? "Estimating…" : "Estimate cost across platforms"}</button>
         {error && <p className="error">{error}</p>}
       </form>
 

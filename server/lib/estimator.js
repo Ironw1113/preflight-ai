@@ -135,8 +135,8 @@ const CLASSIFY_TOOL = {
   }
 };
 
-function classifyTaskHeuristic(description) {
-  const text = description.toLowerCase();
+function classifyTaskHeuristic(description, contextSnippet) {
+  const text = `${description} ${contextSnippet || ""}`.toLowerCase();
   let best = null;
   let bestScore = 0;
   const scores = {};
@@ -156,13 +156,18 @@ function classifyTaskHeuristic(description) {
 
 // Claude classifies the description directly; forcing the classify_task tool
 // call guarantees a structured, in-enum response instead of free-form text.
-async function classifyTaskWithClaude(description) {
+// contextSnippet (a bounded excerpt of an uploaded file, if any) is appended
+// for context only — it never overrides what the description says.
+async function classifyTaskWithClaude(description, contextSnippet) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
 
   const categoryList = Object.entries(TASK_PROFILES)
     .map(([key, p]) => `- ${key}: ${p.label}`)
     .join("\n");
+  const userContent = contextSnippet
+    ? `${description}\n\n--- Excerpt from the uploaded file, for context only ---\n${contextSnippet}`
+    : description;
 
   const res = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
@@ -175,7 +180,7 @@ async function classifyTaskWithClaude(description) {
       model: CLASSIFIER_MODEL,
       max_tokens: 100,
       system: `Classify the user's plain-language AI task description into exactly one of these categories:\n${categoryList}\n\nPick the single best match, then rate your confidence in that match.`,
-      messages: [{ role: "user", content: description }],
+      messages: [{ role: "user", content: userContent }],
       tools: [CLASSIFY_TOOL],
       tool_choice: { type: "tool", name: "classify_task" }
     })
@@ -192,14 +197,14 @@ async function classifyTaskWithClaude(description) {
 
 // Uses Claude when ANTHROPIC_API_KEY is set; otherwise (and on any API error)
 // falls back to the keyword heuristic so the app still works without a key.
-async function classifyTask(description) {
+async function classifyTask(description, contextSnippet) {
   try {
-    const result = await classifyTaskWithClaude(description);
+    const result = await classifyTaskWithClaude(description, contextSnippet);
     if (result) return result;
   } catch (err) {
     console.warn(`Claude classifier unavailable, falling back to heuristic: ${err.message}`);
   }
-  return classifyTaskHeuristic(description);
+  return classifyTaskHeuristic(description, contextSnippet);
 }
 
 function tokensForTask(profile, { avgInputWords = 500 } = {}) {
@@ -295,14 +300,15 @@ function picksAndRec(results) {
  * @param {number} [params.avgInputWords]  avg source document length (for doc-based tasks)
  * @param {number} [params.cacheHitRate]  0–1, share of input tokens served from cache
  * @param {boolean} [params.batch]  use batch pricing (assume 50% discount where offered)
+ * @param {string} [params.fileSnippet]  bounded excerpt of an uploaded file, for classification context only
  * @param {Array} models  model records from models.json
  */
 async function estimate(params, models) {
-  const { description, tasksPerMonth = 1000, avgInputWords = 500, cacheHitRate = 0, batch = false } = params;
+  const { description, tasksPerMonth = 1000, avgInputWords = 500, cacheHitRate = 0, batch = false, fileSnippet } = params;
   if (!description || !description.trim()) throw new Error("description is required");
   if (tasksPerMonth <= 0) throw new Error("tasksPerMonth must be positive");
 
-  const { taskType, confidence } = await classifyTask(description);
+  const { taskType, confidence } = await classifyTask(description, fileSnippet);
   const profile = TASK_PROFILES[taskType];
   const perTask = tokensForTask(profile, { avgInputWords });
 
