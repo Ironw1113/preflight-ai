@@ -243,25 +243,6 @@ td .provider { display: block; font-size: 0.72rem; color: #7686a3; }
 .quota-note.ok { color: #6fd68a; }
 .quota-note.warn { color: #ff9a5a; }
 
-.status-pill { font-size: 0.7rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
-.status-pending { background: #35300f; color: #d6c46f; }
-.status-approved { background: #14351f; color: #6fd68a; }
-.status-rejected { background: #351414; color: #ff8585; }
-.chip.approve { border-color: #2f6e46; color: #6fd68a; }
-.chip.approve:hover { background: #14351f; }
-.chip.reject { border-color: #7a3a3a; color: #ff8585; }
-.chip.reject:hover { background: #351414; }
-.chip:disabled { opacity: 0.5; cursor: default; }
-
-.guardrail-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 14px 4px; }
-.guardrail-card { background: #0f1420; border: 1px solid #26304a; border-radius: 10px; padding: 12px; }
-.guardrail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.85rem; gap: 8px; }
-.guardrail-pre {
-  max-height: 220px; overflow: auto; font-size: 0.7rem; line-height: 1.45;
-  white-space: pre-wrap; word-break: break-word; color: #aab6d0; margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
 .file-upload { margin-bottom: 16px; }
 .file-upload input[type="file"] {
   background: #0f1420; border: 1px dashed #2c3854; border-radius: 8px;

@@ -7,10 +7,14 @@ Derived from market research (July 2026): agents burn 5–30× tokens with ~30×
 - [x] Coding-agent subscription comparison (seat quotas, utilization, API-equivalent cost)
 - [x] Claude-powered task classification with heuristic fallback
 - [x] Variance bands: P50/P90/blowout scenarios, RISK_TIERS per task type, risk banners in UI
-- [x] Approval workflow: save a scenario + budget request (owner, P90 budget, blowout cap, justification) via `server/lib/approvals.js` (SQLite through `node:sqlite`, no accounts yet); approve/reject with timestamped audit trail in the "Approvals" tab; one-page print/PDF sign-off doc at `GET /api/approvals/:id/print` (browser print-to-PDF, no PDF library dependency)
 - [x] Professional site: landing page (`client/src/Landing.jsx` — hero with pre-approval positioning, market-stat cards, P50/P90/blowout explainer, Predict→Approve→Enforce→Learn, feature grid, pricing tiers, footer), sticky `SiteNav` shared with the app, hash routing (`#/app`), Inter typography, SEO meta description
-- [x] Guardrail config export: `server/lib/guardrailConfig.js` generates a LiteLLM `config.yaml` block (hard `max_budget` at the blowout cap, alert thresholds at 80%/100% of the approved P90 budget), a Portkey budget JSON, and a generic webhook JSON — all gated to `status === "approved"` requests via `GET /api/approvals/:id/guardrails/:format` (`?download=1` for a file download, otherwise raw text for copy-to-clipboard). Field names are only used where confident of the current schema; everything else ships as comments, with a "verify before applying" disclaimer. Inline "Guardrails" panel (3 cards, copy + download each) on approved rows in the Approvals tab.
 - [x] File-upload task estimator, Single task **and** Code estimator tabs: upload the file the task runs on and the fixed size guess (`avgInputWords`, or the per-task-kind `inputTokens` seed in the code estimator) is replaced by the file's real word count. Server extracts text (`server/lib/fileExtract.js`, files processed in memory only, never persisted) from plain text/code, PDF, DOCX, and XLSX/XLS. In Single task, a bounded snippet also feeds `classifyTask()` for better task-type detection (both the Claude and heuristic paths). In the code estimator, "codebase size" still applies on top of the real file size (it models surrounding files the task touches, which a single uploaded file can't capture).
+
+## Built but paused (not mounted in the live app)
+- **Approval workflow** (`server/lib/approvals.js`, `server/lib/signoffDoc.js`) and **guardrail config export** (`server/lib/guardrailConfig.js`) are fully implemented and tested (see their `test/*.test.js` files — still run and pass) but pulled from `server/index.js` and the client UI as of 2026-07-28: not ready to scale the SQLite-backed persistence yet. Re-enabling is cheap — the routes and UI just need re-adding, no logic to rebuild. See `server/index.js`'s comment at the top for the exact re-enable pointer. Revisit item 1 (Approve) and item 2 (Enforce) below once persistence is ready to scale.
+
+## 1. Approval workflow (the "Approve" stage — paused, see above)
+## 2. Guardrail config export (the "Enforce" stage — paused, see above)
 
 ## 3. Bring-your-own-eval (the "Learn" stage — next up)
 - User pastes 3–10 real sample tasks + their API keys (keys held in memory only, never stored)

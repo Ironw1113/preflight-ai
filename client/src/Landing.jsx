@@ -46,7 +46,7 @@ const FEATURES = [
   { title: "Multi-step workflows", text: "Chain-aware math: each step carries the context of the ones before it — the accumulation that makes real pipelines expensive." },
   { title: "Mixed-model plans", text: "The cheapest model per step at quality ≥ 85. Routinely 90%+ savings vs. running everything on the flagship." },
   { title: "Code estimator", text: "Bug fix to greenfield: agent-loop multipliers by task kind, language, and codebase size — across APIs and coding-agent subscriptions with seat/quota math." },
-  { title: "Approval workflow", text: "Budget requests, approve/reject with audit trail, printable sign-off. The artifact finance already asks for, one click away." },
+  { title: "Approval workflow", text: "Budget requests, approve/reject with audit trail, printable sign-off. The artifact finance already asks for, one click away.", soon: true },
   { title: "Guardrail export", text: "Approved budgets become enforceable gateway config — caps, 80%/100% alerts. Coming next.", soon: true }
 ];
 

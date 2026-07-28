@@ -197,109 +197,6 @@ function CodingToolsTable({ result }) {
   );
 }
 
-function ApprovalRequestForm({ kind, estimateParams, result, defaultName }) {
-  const modelOptions = [
-    ...(result.results || []).map((r) => ({ ...r, source: "model" })),
-    ...(result.codingTools || []).map((r) => ({ ...r, source: "codingTool" }))
-  ];
-  const defaultModel =
-    modelOptions.find((m) => m.id === result.picks?.bestBudget) ||
-    modelOptions.find((m) => m.id === result.codingToolPicks?.bestBudget) ||
-    modelOptions[0];
-  const keyOf = (m) => `${m.source}:${m.id}`;
-
-  const [open, setOpen] = useState(false);
-  const [modelKey, setModelKey] = useState(defaultModel ? keyOf(defaultModel) : "");
-  const [name, setName] = useState(defaultName);
-  const [ownerName, setOwnerName] = useState("");
-  const [p90Budget, setP90Budget] = useState(defaultModel?.scenarios?.p90 ?? defaultModel?.monthlyCost?.mid ?? 0);
-  const [blowoutCap, setBlowoutCap] = useState(defaultModel?.scenarios?.blowout ?? defaultModel?.monthlyCost?.mid ?? 0);
-  const [justification, setJustification] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(null);
-  const [error, setError] = useState(null);
-
-  function handleModelChange(key) {
-    setModelKey(key);
-    const m = modelOptions.find((o) => keyOf(o) === key);
-    if (m) {
-      setP90Budget(m.scenarios?.p90 ?? m.monthlyCost?.mid ?? 0);
-      setBlowoutCap(m.scenarios?.blowout ?? m.monthlyCost?.mid ?? 0);
-    }
-  }
-
-  async function submit(e) {
-    e.preventDefault();
-    const chosen = modelOptions.find((m) => keyOf(m) === modelKey);
-    setSubmitting(true);
-    setError(null);
-    try {
-      const created = await postJson("/api/approvals", {
-        name, kind, estimateParams,
-        modelId: chosen.id, modelSource: chosen.source,
-        ownerName, p90Budget: +p90Budget, blowoutCap: +blowoutCap, justification
-      });
-      setSubmitted(created);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  if (!open) {
-    return (
-      <button type="button" className="chip add" onClick={() => setOpen(true)}>
-        📝 Request approval
-      </button>
-    );
-  }
-
-  return (
-    <div className="card">
-      <h2>Request budget approval</h2>
-      {submitted ? (
-        <>
-          <p className="quota-note ok">Approval request created — pending review in the Approvals tab.</p>
-          <a className="chip" href={`/api/approvals/${submitted.id}/print`} target="_blank" rel="noreferrer">
-            Open sign-off document ↗
-          </a>
-        </>
-      ) : (
-        <form onSubmit={submit}>
-          <label>Scenario name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
-          <label>Model / tool to request</label>
-          <select value={modelKey} onChange={(e) => handleModelChange(e.target.value)}>
-            {modelOptions.map((m) => (
-              <option key={keyOf(m)} value={keyOf(m)}>{m.name} ({m.provider})</option>
-            ))}
-          </select>
-          <div className="grid">
-            <div>
-              <label>Requested by</label>
-              <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} required />
-            </div>
-            <div>
-              <label>P90 monthly budget ($)</label>
-              <input type="number" min="0" step="0.01" value={p90Budget} onChange={(e) => setP90Budget(e.target.value)} required />
-            </div>
-            <div>
-              <label>Blowout cap ($)</label>
-              <input type="number" min="0" step="0.01" value={blowoutCap} onChange={(e) => setBlowoutCap(e.target.value)} required />
-            </div>
-          </div>
-          <label>Business justification</label>
-          <textarea rows={3} value={justification} onChange={(e) => setJustification(e.target.value)} required />
-          <button className="primary" disabled={submitting}>{submitting ? "Submitting…" : "Submit for approval"}</button>{" "}
-          <button type="button" className="chip" onClick={() => setOpen(false)}>Cancel</button>
-          {error && <p className="error">{error}</p>}
-        </form>
-      )}
-    </div>
-  );
-}
-
 function SharedInputs({ tasksPerMonth, setTasksPerMonth, cacheHitRate, setCacheHitRate, batch, setBatch, volumeLabel, children }) {
   return (
     <div className="grid">
@@ -436,12 +333,6 @@ function SingleMode() {
           </div>
           {result.recommendation && <div className="rec">💡 {result.recommendation}</div>}
           <ResultsTable result={result} />
-          <ApprovalRequestForm
-            kind="single"
-            estimateParams={{ description, tasksPerMonth: +tasksPerMonth, avgInputWords: +avgInputWords, cacheHitRate: +cacheHitRate, batch }}
-            result={result}
-            defaultName={result.task.label}
-          />
         </>
       )}
     </>
@@ -532,12 +423,6 @@ function WorkflowMode() {
           )}
 
           <ResultsTable result={result} />
-          <ApprovalRequestForm
-            kind="workflow"
-            estimateParams={{ steps: steps.map((s) => ({ description: s.description, avgInputWords: +s.avgInputWords })), tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch }}
-            result={result}
-            defaultName={`Workflow — ${steps.length} steps`}
-          />
         </>
       )}
     </>
@@ -628,169 +513,9 @@ function CodeMode() {
           <CodingToolsTable result={result} />
           {result.codingToolRecommendation && <div className="rec">🧑‍💻 {result.codingToolRecommendation}</div>}
           <ResultsTable result={result} />
-          <ApprovalRequestForm
-            kind="code"
-            estimateParams={{ taskKind, language, codebaseSize, tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch, fileWordCount: file ? file.wordCount : undefined }}
-            result={result}
-            defaultName={result.task.label}
-          />
         </>
       )}
     </>
-  );
-}
-
-const STATUS_LABELS = { pending: "Pending", approved: "Approved", rejected: "Rejected" };
-const GUARDRAIL_FORMATS = [
-  { id: "litellm", label: "LiteLLM config.yaml" },
-  { id: "portkey", label: "Portkey budget JSON" },
-  { id: "webhook", label: "Generic webhook JSON" }
-];
-
-function GuardrailPanel({ approvalId }) {
-  const [contents, setContents] = useState({});
-  const [loading, setLoading] = useState({});
-  const [copied, setCopied] = useState(null);
-
-  useEffect(() => {
-    GUARDRAIL_FORMATS.forEach(async (f) => {
-      setLoading((l) => ({ ...l, [f.id]: true }));
-      try {
-        const res = await fetch(`/api/approvals/${approvalId}/guardrails/${f.id}`);
-        const text = await res.text();
-        setContents((c) => ({ ...c, [f.id]: text }));
-      } finally {
-        setLoading((l) => ({ ...l, [f.id]: false }));
-      }
-    });
-  }, [approvalId]);
-
-  async function copy(id) {
-    await navigator.clipboard.writeText(contents[id] || "");
-    setCopied(id);
-    setTimeout(() => setCopied(null), 1500);
-  }
-
-  return (
-    <div className="guardrail-panel">
-      {GUARDRAIL_FORMATS.map((f) => (
-        <div className="guardrail-card" key={f.id}>
-          <div className="guardrail-head">
-            <strong>{f.label}</strong>
-            <div>
-              <button type="button" className="chip" onClick={() => copy(f.id)} disabled={!contents[f.id]}>
-                {copied === f.id ? "Copied!" : "Copy"}
-              </button>{" "}
-              <a className="chip" href={`/api/approvals/${approvalId}/guardrails/${f.id}?download=1`} download>Download</a>
-            </div>
-          </div>
-          <pre className="guardrail-pre">{loading[f.id] ? "Loading…" : contents[f.id] || ""}</pre>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ApprovalsMode() {
-  const [approvals, setApprovals] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [busyId, setBusyId] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/approvals");
-      if (!res.ok) throw new Error("Failed to load approvals");
-      setApprovals(await res.json());
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function decide(id, status) {
-    setBusyId(id);
-    try {
-      await postJson(`/api/approvals/${id}/decide`, { status });
-      await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  return (
-    <div className="card">
-      <div className="tablehead">
-        <h2>Approval requests</h2>
-        <button type="button" className="chip" onClick={load}>Refresh</button>
-      </div>
-      {loading && <p className="disclaimer">Loading…</p>}
-      {error && <p className="error">{error}</p>}
-      {!loading && approvals.length === 0 && (
-        <p className="disclaimer">No approval requests yet. Request one from any results view (Single task, Multi-step workflow, or Code estimator).</p>
-      )}
-      {approvals.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>Scenario</th><th>Owner</th><th>Kind</th><th>P90 budget</th><th>Blowout cap</th><th>Status</th><th>Requested</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {approvals.map((a) => (
-              <React.Fragment key={a.id}>
-                <tr>
-                  <td>
-                    <strong>{a.name}</strong>
-                    <span className="provider">{a.modelName}</span>
-                  </td>
-                  <td>{a.ownerName}</td>
-                  <td>{a.kind}</td>
-                  <td>{fmt(a.p90Budget)}</td>
-                  <td>{fmt(a.blowoutCap)}</td>
-                  <td><span className={`status-pill status-${a.status}`}>{STATUS_LABELS[a.status] || a.status}</span></td>
-                  <td>{new Date(a.createdAt).toLocaleDateString()}</td>
-                  <td>
-                    {a.status === "pending" ? (
-                      <>
-                        <button type="button" className="chip approve" disabled={busyId === a.id} onClick={() => decide(a.id, "approved")}>Approve</button>{" "}
-                        <button type="button" className="chip reject" disabled={busyId === a.id} onClick={() => decide(a.id, "rejected")}>Reject</button>
-                      </>
-                    ) : (
-                      <>
-                        <a className="chip" href={`/api/approvals/${a.id}/print`} target="_blank" rel="noreferrer">Sign-off ↗</a>{" "}
-                        {a.status === "approved" && (
-                          <button type="button" className="chip" onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}>
-                            {expandedId === a.id ? "Hide guardrails" : "Guardrails"}
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </td>
-                </tr>
-                {expandedId === a.id && (
-                  <tr>
-                    <td colSpan={8}>
-                      <GuardrailPanel approvalId={a.id} />
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
   );
 }
 
@@ -808,12 +533,10 @@ function EstimatorApp() {
           <button className={mode === "single" ? "tab active" : "tab"} onClick={() => setMode("single")}>Single task</button>
           <button className={mode === "workflow" ? "tab active" : "tab"} onClick={() => setMode("workflow")}>Multi-step workflow</button>
           <button className={mode === "code" ? "tab active" : "tab"} onClick={() => setMode("code")}>Code estimator</button>
-          <button className={mode === "approvals" ? "tab active" : "tab"} onClick={() => setMode("approvals")}>Approvals</button>
         </div>
         {mode === "single" && <SingleMode />}
         {mode === "workflow" && <WorkflowMode />}
         {mode === "code" && <CodeMode />}
-        {mode === "approvals" && <ApprovalsMode />}
       </div>
     </>
   );
