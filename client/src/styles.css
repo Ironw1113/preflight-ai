@@ -90,17 +90,6 @@ body {
 .feature-card p { color: #93a0b8; font-size: 0.86rem; line-height: 1.55; }
 .soon { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; background: #35300f; color: #d6c46f; padding: 2px 8px; border-radius: 999px; vertical-align: middle; margin-left: 6px; }
 
-.tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; align-items: stretch; }
-.tier-card { background: #171e2e; border: 1px solid #26304a; border-radius: 14px; padding: 26px; display: flex; flex-direction: column; }
-.tier-card.featured { border-color: #3574e0; box-shadow: 0 12px 40px rgba(53, 116, 224, 0.18); }
-.tier-card h3 { font-size: 1rem; color: #93a0b8; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
-.tier-price { font-size: 2rem; font-weight: 800; margin: 10px 0 16px; }
-.tier-price span { font-size: 0.78rem; font-weight: 500; color: #7686a3; }
-.tier-card ul { list-style: none; padding: 0; margin: 0 0 22px; flex: 1; }
-.tier-card li { font-size: 0.87rem; color: #aab6d0; padding: 6px 0 6px 22px; position: relative; }
-.tier-card li::before { content: "✓"; position: absolute; left: 0; color: #6fd68a; font-weight: 700; }
-.tier-card .btn-primary, .tier-card .btn-ghost { text-align: center; }
-
 .closing { text-align: center; }
 .closing h2 { margin-bottom: 26px; }
 

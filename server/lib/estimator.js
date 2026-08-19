@@ -629,7 +629,7 @@ async function estimateCode(params, models, codingTools = []) {
   let taskKind = explicitTaskKind;
   let taskConfidence = "high"; // an explicit taskKind is a deliberate choice, not a guess
   if (!taskKind) {
-    if (!description || !description.trim()) throw new Error("description is required when taskKind is not given");
+    if (!description || !description.trim()) throw new Error("Please describe the code change you want to make");
     const classified = await classifyCodeTaskKind(description, fileSnippet);
     taskKind = classified.taskKind;
     taskConfidence = classified.confidence;

@@ -11,7 +11,6 @@ export function SiteNav({ inApp = false }) {
           <>
             <a href="#how">How it works</a>
             <a href="#product">Product</a>
-            <a href="#pricing">Pricing</a>
           </>
         )}
         {inApp && <a href="#/">← Home</a>}
@@ -48,12 +47,6 @@ const FEATURES = [
   { title: "Code estimator", text: "Bug fix to greenfield: agent-loop multipliers by task kind, language, and codebase size — across APIs and coding-agent subscriptions with seat/quota math." },
   { title: "Approval workflow", text: "Budget requests, approve/reject with audit trail, printable sign-off. The artifact finance already asks for, one click away.", soon: true },
   { title: "Guardrail export", text: "Approved budgets become enforceable gateway config — caps, 80%/100% alerts. Coming next.", soon: true }
-];
-
-const TIERS = [
-  { name: "Free", price: "$0", note: "forever", items: ["All three estimators", "P50 / P90 / blowout on every result", "15+ models & coding agents", "Verified pricing data"] },
-  { name: "Pro", price: "$29", note: "per user / month", items: ["Saved scenarios", "PDF & CSV exports", "Price-change re-forecasts", "Email alerts"], featured: true },
-  { name: "Team", price: "$199", note: "per month, 10 seats", items: ["Approval workflow + audit trail", "Budget dashboard", "Guardrail config export", "Bring-your-own-eval runs"] }
 ];
 
 export default function Landing() {
@@ -120,24 +113,6 @@ export default function Landing() {
             <div className="feature-card" key={f.title}>
               <h3>{f.title} {f.soon && <span className="soon">soon</span>}</h3>
               <p>{f.text}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="pricing" id="pricing">
-        <h2>Pricing</h2>
-        <div className="tier-grid">
-          {TIERS.map((t) => (
-            <div className={`tier-card ${t.featured ? "featured" : ""}`} key={t.name}>
-              <h3>{t.name}</h3>
-              <p className="tier-price">{t.price} <span>{t.note}</span></p>
-              <ul>
-                {t.items.map((i) => <li key={i}>{i}</li>)}
-              </ul>
-              <a className={t.featured ? "btn-primary" : "btn-ghost"} href="#/app">
-                {t.name === "Free" ? "Start estimating" : "Get started"}
-              </a>
             </div>
           ))}
         </div>

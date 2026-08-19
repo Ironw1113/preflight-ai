@@ -517,8 +517,8 @@ function CodeMode() {
           fileSnippet: project ? project.snippet : undefined
         });
       }}>
-        <label>Describe the code change you want to make</label>
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} required
+        <label>Describe the code change you want to make (required, even if you upload files below)</label>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
           placeholder="e.g. Add support for exporting reports to CSV" />
         <div className="chips">
           {CODE_EXAMPLES.map((ex) => (
