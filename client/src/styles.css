@@ -253,3 +253,5 @@ td .provider { display: block; font-size: 0.72rem; color: #7686a3; }
   background: #0f1420; border: 1px solid #2c3854; border-radius: 8px;
   padding: 10px 12px; font-size: 0.85rem;
 }
+.upload-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.upload-option-label { display: block; font-size: 0.72rem; color: #7686a3; margin-bottom: 4px; }

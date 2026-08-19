@@ -12,13 +12,11 @@ const EXAMPLES = [
   "Translate product descriptions into French and German"
 ];
 
-const CODE_KINDS = [
-  { id: "bugfix", label: "Bug fix" },
-  { id: "feature", label: "New feature" },
-  { id: "refactor", label: "Refactor" },
-  { id: "tests", label: "Write tests" },
-  { id: "review", label: "Code review" },
-  { id: "greenfield", label: "New project from scratch" }
+const CODE_EXAMPLES = [
+  "Fix the crash when a user submits an empty form",
+  "Add support for exporting reports to CSV",
+  "Refactor the payment module to reduce technical debt",
+  "Write unit tests for the authentication flow"
 ];
 
 async function postJson(url, body) {
@@ -256,6 +254,50 @@ function FileUpload({ file, onFile, onClear, uploading, uploadError }) {
   );
 }
 
+function ProjectUpload({ project, onFiles, onClear, uploading, uploadError }) {
+  return (
+    <div className="file-upload">
+      <label>Upload the code you're working on (optional) — select files, or a whole folder</label>
+      {!project ? (
+        <div className="upload-row">
+          <div className="upload-option">
+            <span className="upload-option-label">Files</span>
+            <input
+              type="file"
+              multiple
+              accept={UPLOAD_ACCEPT}
+              disabled={uploading}
+              onChange={(e) => e.target.files.length > 0 && onFiles(Array.from(e.target.files))}
+            />
+          </div>
+          <div className="upload-option">
+            <span className="upload-option-label">Folder</span>
+            <input
+              type="file"
+              webkitdirectory=""
+              directory=""
+              multiple
+              disabled={uploading}
+              onChange={(e) => e.target.files.length > 0 && onFiles(Array.from(e.target.files))}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="file-chip">
+          <span>
+            📁 {project.fileCount} file{project.fileCount === 1 ? "" : "s"} read
+            {project.skippedCount > 0 ? `, ${project.skippedCount} excluded` : ""}
+            {" — "}{project.totalWordCount.toLocaleString()} words
+          </span>
+          <button type="button" className="chip" onClick={onClear}>Remove</button>
+        </div>
+      )}
+      {uploading && <p className="disclaimer">Reading files…</p>}
+      {uploadError && <p className="error">{uploadError}</p>}
+    </div>
+  );
+}
+
 function SingleMode() {
   const [description, setDescription] = useState("");
   const [tasksPerMonth, setTasksPerMonth] = useState(1000);
@@ -430,27 +472,32 @@ function WorkflowMode() {
 }
 
 function CodeMode() {
-  const [taskKind, setTaskKind] = useState("feature");
+  const [description, setDescription] = useState("");
   const [language, setLanguage] = useState("typescript");
   const [codebaseSize, setCodebaseSize] = useState("medium");
   const [tasksPerMonth, setTasksPerMonth] = useState(200);
   const [cacheHitRate, setCacheHitRate] = useState(0);
   const [batch, setBatch] = useState(false);
-  const [file, setFile] = useState(null);
+  const [project, setProject] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const { result, loading, error, run } = useEstimate();
 
-  async function handleFile(selected) {
+  async function handleFiles(files) {
     setUploading(true);
     setUploadError(null);
     try {
       const formData = new FormData();
-      formData.append("file", selected);
-      const res = await fetch("/api/extract-text", { method: "POST", body: formData });
+      // relative paths travel separately — multipart/form-data reduces a
+      // filename containing "/" to its basename, so they can't ride along
+      // on each file's own filename (see the server route's comment)
+      const paths = files.map((f) => f.webkitRelativePath || f.name);
+      files.forEach((f) => formData.append("files", f));
+      formData.append("paths", JSON.stringify(paths));
+      const res = await fetch("/api/extract-project", { method: "POST", body: formData });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to read file");
-      setFile(data);
+      if (!res.ok) throw new Error(data.error || "Failed to read files");
+      setProject(data);
     } catch (err) {
       setUploadError(err.message);
     } finally {
@@ -460,14 +507,26 @@ function CodeMode() {
 
   return (
     <>
-      <form className="card" onSubmit={(e) => { e.preventDefault(); run("/api/estimate-code", { taskKind, language, codebaseSize, tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch, fileWordCount: file ? file.wordCount : undefined }); }}>
+      <form className="card" onSubmit={(e) => {
+        e.preventDefault();
+        run("/api/estimate-code", {
+          description,
+          language, codebaseSize,
+          tasksPerMonth: +tasksPerMonth, cacheHitRate: +cacheHitRate, batch,
+          fileWordCount: project ? project.totalWordCount : undefined,
+          fileSnippet: project ? project.snippet : undefined
+        });
+      }}>
+        <label>Describe the code change you want to make</label>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} required
+          placeholder="e.g. Add support for exporting reports to CSV" />
+        <div className="chips">
+          {CODE_EXAMPLES.map((ex) => (
+            <button type="button" key={ex} className="chip" onClick={() => setDescription(ex)}>{ex}</button>
+          ))}
+        </div>
+        <ProjectUpload project={project} onFiles={handleFiles} onClear={() => setProject(null)} uploading={uploading} uploadError={uploadError} />
         <div className="grid">
-          <div>
-            <label>Coding task type</label>
-            <select value={taskKind} onChange={(e) => setTaskKind(e.target.value)}>
-              {CODE_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
-            </select>
-          </div>
           <div>
             <label>Language</label>
             <select value={language} onChange={(e) => setLanguage(e.target.value)}>
@@ -475,7 +534,7 @@ function CodeMode() {
             </select>
           </div>
           <div>
-            <label>Codebase size{file && " (still applies — surrounding files this file's task will touch)"}</label>
+            <label>Codebase size{project && " (still applies — surrounding files not in your upload)"}</label>
             <select value={codebaseSize} onChange={(e) => setCodebaseSize(e.target.value)}>
               <option value="small">Small (&lt;10K lines)</option>
               <option value="medium">Medium (10–100K lines)</option>
@@ -483,7 +542,6 @@ function CodeMode() {
             </select>
           </div>
         </div>
-        <FileUpload file={file} onFile={handleFile} onClear={() => setFile(null)} uploading={uploading} uploadError={uploadError} />
         <SharedInputs {...{ tasksPerMonth, setTasksPerMonth, cacheHitRate, setCacheHitRate, batch, setBatch }} volumeLabel="Coding tasks per month" />
         <button className="primary" disabled={loading || uploading}>{loading ? "Estimating…" : "Estimate coding cost across all AIs"}</button>
         {error && <p className="error">{error}</p>}
@@ -493,15 +551,16 @@ function CodeMode() {
         <>
           <div className="card summary">
             <div>
-              <span className="label">Task</span>
+              <span className="label">Detected task</span>
               <strong>{result.task.label}</strong>
+              <span className={`conf conf-${result.task.confidence}`}>{result.task.confidence} confidence</span>
             </div>
             <div>
               <span className="label">Agent loops per task</span>
               <strong>{result.task.loops}×</strong>
             </div>
             <div>
-              <span className="label">Tokens per task (in / out){result.assumptions?.fileWordCount != null && " — from uploaded file"}</span>
+              <span className="label">Tokens per task (in / out){result.assumptions?.fileWordCount != null && " — from uploaded project"}</span>
               <strong>{fmtTok(result.tokensPerTask.input.mid)} / {fmtTok(result.tokensPerTask.output.mid)}</strong>
             </div>
             <div>

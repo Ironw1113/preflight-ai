@@ -448,6 +448,85 @@ const CODEBASE_SIZE = { small: 0.6, medium: 1.0, large: 1.8 };
 const VERBOSE_LANGS = ["java", "c#", "csharp", "c++", "cpp", "objective-c"];
 const TERSE_LANGS = ["python", "ruby", "go"];
 
+const CODE_TASK_KEYWORDS = {
+  bugfix: ["bug", "fix", "broken", "error", "crash", "issue", "fails", "failing", "incorrect", "regression", "not working"],
+  tests: ["test", "tests", "unit test", "coverage", "testing", "spec", "specs"],
+  review: ["review", "audit", "evaluate", "assess", "look over", "code review", "pr review", "feedback on"],
+  greenfield: ["new project", "from scratch", "greenfield", "bootstrap", "scaffold", "new app", "new service", "starter", "set up a new"],
+  refactor: ["refactor", "clean up", "restructure", "reorganize", "simplify", "rewrite", "tech debt", "technical debt", "modernize"],
+  feature: ["add", "new feature", "implement", "build", "create", "support for", "introduce", "extend"]
+};
+
+function classifyCodeTaskKindHeuristic(description, contextSnippet) {
+  const text = `${description} ${contextSnippet || ""}`.toLowerCase();
+  let best = null;
+  let bestScore = 0;
+  for (const [kind, keywords] of Object.entries(CODE_TASK_KEYWORDS)) {
+    let score = 0;
+    for (const kw of keywords) {
+      if (text.includes(kw)) score += kw.length > 6 ? 2 : 1;
+    }
+    if (score > bestScore) { bestScore = score; best = kind; }
+  }
+  const taskKind = best || "feature";
+  const confidence = bestScore === 0 ? "low" : bestScore >= 3 ? "high" : "medium";
+  return { taskKind, confidence };
+}
+
+const CODE_CLASSIFY_TOOL = {
+  name: "classify_code_task",
+  description: "Record the single best-fitting kind of coding task for a plain-language description.",
+  input_schema: {
+    type: "object",
+    properties: {
+      taskKind: { type: "string", enum: Object.keys(CODE_TASKS) },
+      confidence: { type: "string", enum: ["low", "medium", "high"] }
+    },
+    required: ["taskKind", "confidence"]
+  }
+};
+
+async function classifyCodeTaskKindWithClaude(description, contextSnippet) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  const categoryList = Object.entries(CODE_TASKS).map(([key, t]) => `- ${key}: ${t.label}`).join("\n");
+  const userContent = contextSnippet
+    ? `${description}\n\n--- Excerpt from the uploaded project, for context only ---\n${contextSnippet}`
+    : description;
+
+  const res = await fetch(ANTHROPIC_API_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({
+      model: CLASSIFIER_MODEL,
+      max_tokens: 100,
+      system: `Classify the user's plain-language description of a coding change into exactly one of these categories:\n${categoryList}\n\nPick the single best match, then rate your confidence in that match.`,
+      messages: [{ role: "user", content: userContent }],
+      tools: [CODE_CLASSIFY_TOOL],
+      tool_choice: { type: "tool", name: "classify_code_task" }
+    })
+  });
+
+  if (!res.ok) throw new Error(`Claude code-classify request failed: ${res.status} ${await res.text()}`);
+  const data = await res.json();
+  const toolUse = data.content?.find((b) => b.type === "tool_use");
+  if (!toolUse) throw new Error("Claude code-classify response missing tool_use block");
+  const { taskKind, confidence } = toolUse.input;
+  if (!CODE_TASKS[taskKind]) throw new Error(`Unknown taskKind from Claude: ${taskKind}`);
+  return { taskKind, confidence };
+}
+
+async function classifyCodeTaskKind(description, contextSnippet) {
+  try {
+    const result = await classifyCodeTaskKindWithClaude(description, contextSnippet);
+    if (result) return result;
+  } catch (err) {
+    console.warn(`Claude code classifier unavailable, falling back to heuristic: ${err.message}`);
+  }
+  return classifyCodeTaskKindHeuristic(description, contextSnippet);
+}
+
 const HOURS_PER_MONTH = 730; // average month
 
 function quotaWindowLabel(hours) {
@@ -537,8 +616,25 @@ function estimateCodingTools({ input, output, tasksPerMonth, cacheHitRate, batch
   return results.sort((a, b) => b.valueScore - a.valueScore);
 }
 
-function estimateCode(params, models, codingTools = []) {
-  const { taskKind = "feature", language = "typescript", codebaseSize = "medium", tasksPerMonth = 200, cacheHitRate = 0, batch = false, fileWordCount } = params;
+/**
+ * @param {object} params
+ * @param {string} [params.taskKind]  explicit kind — skips classification when given
+ * @param {string} [params.description]  plain-language description of the change; required if taskKind isn't given, classified into a taskKind
+ * @param {string} [params.fileSnippet]  bounded excerpt of uploaded file(s), for classification context only
+ * @param {number} [params.fileWordCount]  real word count from uploaded file(s), replaces the fixed input-token seed
+ */
+async function estimateCode(params, models, codingTools = []) {
+  const { taskKind: explicitTaskKind, description, language = "typescript", codebaseSize = "medium", tasksPerMonth = 200, cacheHitRate = 0, batch = false, fileWordCount, fileSnippet } = params;
+
+  let taskKind = explicitTaskKind;
+  let taskConfidence = "high"; // an explicit taskKind is a deliberate choice, not a guess
+  if (!taskKind) {
+    if (!description || !description.trim()) throw new Error("description is required when taskKind is not given");
+    const classified = await classifyCodeTaskKind(description, fileSnippet);
+    taskKind = classified.taskKind;
+    taskConfidence = classified.confidence;
+  }
+
   const kind = CODE_TASKS[taskKind];
   if (!kind) throw new Error(`taskKind must be one of: ${Object.keys(CODE_TASKS).join(", ")}`);
   const sizeMult = CODEBASE_SIZE[codebaseSize];
@@ -578,11 +674,11 @@ function estimateCode(params, models, codingTools = []) {
   const { picks: codingToolPicks, recommendation: codingToolRecommendation } = picksAndRec(codingToolResults);
 
   return {
-    task: { type: "coding", label: `${kind.label} — ${language}, ${codebaseSize} codebase`, confidence: "high", loops: kind.loops },
+    task: { type: "coding", label: `${kind.label} — ${language}, ${codebaseSize} codebase`, confidence: taskConfidence, loops: kind.loops },
     risk: { level: risk.level, p90Mult: risk.p90Mult, blowoutMult: risk.blowoutMult, warning: risk.warning },
     tokensPerTask: { input: range(input), output: range(output) },
     monthlyTokens: { input: range(input * tasksPerMonth), output: range(output * tasksPerMonth) },
-    assumptions: { taskKind, language, codebaseSize, tasksPerMonth, cacheHitRate, batch, agentLoops: kind.loops, fileWordCount: fileWordCount ?? null, uncertainty: `±${RANGE * 100}%` },
+    assumptions: { taskKind, description: description ?? null, language, codebaseSize, tasksPerMonth, cacheHitRate, batch, agentLoops: kind.loops, fileWordCount: fileWordCount ?? null, uncertainty: `±${RANGE * 100}%` },
     results: results.sort((a, b) => b.valueScore - a.valueScore),
     picks,
     recommendation,
@@ -593,4 +689,9 @@ function estimateCode(params, models, codingTools = []) {
   };
 }
 
-module.exports = { estimate, estimateWorkflow, estimateCode, classifyTask, classifyTaskHeuristic, TASK_PROFILES, CODE_TASKS };
+module.exports = {
+  estimate, estimateWorkflow, estimateCode,
+  classifyTask, classifyTaskHeuristic,
+  classifyCodeTaskKind, classifyCodeTaskKindHeuristic,
+  TASK_PROFILES, CODE_TASKS
+};

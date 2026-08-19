@@ -117,4 +117,96 @@ async function extractText(buffer, originalName, mimetype) {
   };
 }
 
-module.exports = { extractText, wordCount, TEXT_EXTENSIONS, SPREADSHEET_EXTENSIONS };
+const SUPPORTED_EXTENSIONS = new Set([...TEXT_EXTENSIONS, ...SPREADSHEET_EXTENSIONS, "pdf", "docx"]);
+
+function isSupportedExtension(filename) {
+  return SUPPORTED_EXTENSIONS.has(extOf(filename));
+}
+
+// directories nobody wants counted in a project-size estimate — dependency
+// trees, build output, VCS internals, caches
+const SKIP_PATH_SEGMENTS = new Set([
+  "node_modules", ".git", ".svn", ".hg", "dist", "build", "out", ".next",
+  ".nuxt", "coverage", ".cache", "vendor", ".venv", "venv", "__pycache__",
+  "target", ".pytest_cache", ".turbo", ".parcel-cache"
+]);
+
+function shouldSkipPath(relativePath) {
+  return String(relativePath).split(/[/\\]/).some((seg) => SKIP_PATH_SEGMENTS.has(seg));
+}
+
+const PROJECT_MAX_SNIPPET_CHARS = 4000;
+const PROJECT_MAX_LISTED_FILES = 50;
+
+/**
+ * Aggregates text across many uploaded files (a project/folder) into a
+ * single word count + a bounded context snippet. Unlike extractText(),
+ * this never throws for one bad file — junk paths (node_modules, .git,
+ * build output, ...) and unsupported extensions are silently skipped, and
+ * per-file extraction errors (e.g. a corrupt PDF) are recorded but don't
+ * fail the whole batch, since a "whole project" upload naturally contains
+ * plenty of files we can't and shouldn't try to read.
+ *
+ * @param {Array<{buffer: Buffer, originalName: string, mimetype?: string}>} files
+ */
+async function extractProjectText(files) {
+  const included = [];
+  const skipped = [];
+  const failed = [];
+
+  for (const f of files) {
+    if (shouldSkipPath(f.originalName)) {
+      skipped.push({ fileName: f.originalName, reason: "excluded path (node_modules/.git/build/etc.)" });
+      continue;
+    }
+    if (!isSupportedExtension(f.originalName)) {
+      skipped.push({ fileName: f.originalName, reason: "unsupported file type" });
+      continue;
+    }
+    try {
+      const result = await extractText(f.buffer, f.originalName, f.mimetype);
+      included.push(result);
+    } catch (err) {
+      failed.push({ fileName: f.originalName, reason: err.message });
+    }
+  }
+
+  const totalWordCount = included.reduce((sum, r) => sum + r.wordCount, 0);
+  const totalCharCount = included.reduce((sum, r) => sum + r.charCount, 0);
+
+  // bounded context snippet: a file listing, then excerpts from the
+  // largest files (most likely to matter) until the budget runs out
+  const listing = included
+    .slice(0, PROJECT_MAX_LISTED_FILES)
+    .map((r) => `- ${r.fileName} (${r.wordCount} words)`)
+    .join("\n");
+  const moreNote = included.length > PROJECT_MAX_LISTED_FILES ? `\n… and ${included.length - PROJECT_MAX_LISTED_FILES} more files` : "";
+  let snippet = `Project files (${included.length} read${skipped.length ? `, ${skipped.length} excluded` : ""}):\n${listing}${moreNote}`;
+
+  const byLargest = [...included].sort((a, b) => b.wordCount - a.wordCount);
+  for (const r of byLargest) {
+    if (snippet.length >= PROJECT_MAX_SNIPPET_CHARS) break;
+    const remaining = PROJECT_MAX_SNIPPET_CHARS - snippet.length;
+    if (remaining < 100) break;
+    snippet += `\n\n--- ${r.fileName} ---\n${r.preview.slice(0, remaining - 20)}`;
+  }
+  snippet = snippet.slice(0, PROJECT_MAX_SNIPPET_CHARS);
+
+  return {
+    fileCount: included.length,
+    skippedCount: skipped.length,
+    failedCount: failed.length,
+    totalWordCount,
+    totalCharCount,
+    files: included.map((r) => ({ fileName: r.fileName, wordCount: r.wordCount })),
+    skipped,
+    failed,
+    snippet
+  };
+}
+
+module.exports = {
+  extractText, extractProjectText, wordCount,
+  isSupportedExtension, shouldSkipPath,
+  TEXT_EXTENSIONS, SPREADSHEET_EXTENSIONS, SUPPORTED_EXTENSIONS, SKIP_PATH_SEGMENTS
+};

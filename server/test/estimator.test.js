@@ -1,6 +1,6 @@
 const assert = require("node:assert");
 const { test } = require("node:test");
-const { estimate, estimateWorkflow, estimateCode, classifyTask, classifyTaskHeuristic } = require("../lib/estimator");
+const { estimate, estimateWorkflow, estimateCode, classifyTask, classifyTaskHeuristic, classifyCodeTaskKindHeuristic } = require("../lib/estimator");
 const data = require("../data/models.json");
 
 // No ANTHROPIC_API_KEY in the test env, so classifyTask exercises the
@@ -104,8 +104,8 @@ test("workflow rejects empty steps", async () => {
 
 // --- code estimator ---
 
-test("code estimator returns results for all models", () => {
-  const r = estimateCode({ taskKind: "feature", language: "typescript", codebaseSize: "medium", tasksPerMonth: 200 }, data.models);
+test("code estimator returns results for all models", async () => {
+  const r = await estimateCode({ taskKind: "feature", language: "typescript", codebaseSize: "medium", tasksPerMonth: 200 }, data.models);
   assert.strictEqual(r.results.length, data.models.length);
   assert.strictEqual(r.task.type, "coding");
   for (const m of r.results) {
@@ -114,44 +114,76 @@ test("code estimator returns results for all models", () => {
   }
 });
 
-test("bug fix costs less than new feature at same volume", () => {
-  const bug = estimateCode({ taskKind: "bugfix", tasksPerMonth: 100 }, data.models);
-  const feat = estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
+test("bug fix costs less than new feature at same volume", async () => {
+  const bug = await estimateCode({ taskKind: "bugfix", tasksPerMonth: 100 }, data.models);
+  const feat = await estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
   const b = bug.results.find((m) => m.id === "claude-sonnet-5");
   const f = feat.results.find((m) => m.id === "claude-sonnet-5");
   assert.ok(b.monthlyCost.mid < f.monthlyCost.mid);
 });
 
-test("large codebase costs more than small", () => {
-  const small = estimateCode({ taskKind: "feature", codebaseSize: "small", tasksPerMonth: 100 }, data.models);
-  const large = estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 100 }, data.models);
+test("large codebase costs more than small", async () => {
+  const small = await estimateCode({ taskKind: "feature", codebaseSize: "small", tasksPerMonth: 100 }, data.models);
+  const large = await estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 100 }, data.models);
   const s = small.results.find((m) => m.id === "gpt-5-6-terra");
   const l = large.results.find((m) => m.id === "gpt-5-6-terra");
   assert.ok(l.monthlyCost.mid > s.monthlyCost.mid);
 });
 
-test("code estimator rejects unknown task kind", () => {
-  assert.throws(() => estimateCode({ taskKind: "nonsense" }, data.models));
+test("code estimator rejects unknown task kind", async () => {
+  await assert.rejects(() => estimateCode({ taskKind: "nonsense" }, data.models));
 });
 
-test("uploaded file word count replaces the fixed input-token seed", () => {
-  const guessed = estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
-  const fromFile = estimateCode({ taskKind: "feature", tasksPerMonth: 100, fileWordCount: 4000 }, data.models);
+test("code estimator requires a description when taskKind is not given", async () => {
+  await assert.rejects(() => estimateCode({ tasksPerMonth: 100 }, data.models));
+});
+
+test("uploaded file word count replaces the fixed input-token seed", async () => {
+  const guessed = await estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
+  const fromFile = await estimateCode({ taskKind: "feature", tasksPerMonth: 100, fileWordCount: 4000 }, data.models);
   assert.notStrictEqual(fromFile.tokensPerTask.input.mid, guessed.tokensPerTask.input.mid);
   assert.strictEqual(fromFile.assumptions.fileWordCount, 4000);
   assert.strictEqual(guessed.assumptions.fileWordCount, null);
 });
 
-test("a larger uploaded file produces a larger input estimate, all else equal", () => {
-  const smallFile = estimateCode({ taskKind: "refactor", tasksPerMonth: 100, fileWordCount: 500 }, data.models);
-  const bigFile = estimateCode({ taskKind: "refactor", tasksPerMonth: 100, fileWordCount: 8000 }, data.models);
+test("a larger uploaded file produces a larger input estimate, all else equal", async () => {
+  const smallFile = await estimateCode({ taskKind: "refactor", tasksPerMonth: 100, fileWordCount: 500 }, data.models);
+  const bigFile = await estimateCode({ taskKind: "refactor", tasksPerMonth: 100, fileWordCount: 8000 }, data.models);
   assert.ok(bigFile.tokensPerTask.input.mid > smallFile.tokensPerTask.input.mid);
 });
 
-test("codebaseSize still scales on top of a real file's size", () => {
-  const small = estimateCode({ taskKind: "feature", codebaseSize: "small", tasksPerMonth: 100, fileWordCount: 2000 }, data.models);
-  const large = estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 100, fileWordCount: 2000 }, data.models);
+test("codebaseSize still scales on top of a real file's size", async () => {
+  const small = await estimateCode({ taskKind: "feature", codebaseSize: "small", tasksPerMonth: 100, fileWordCount: 2000 }, data.models);
+  const large = await estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 100, fileWordCount: 2000 }, data.models);
   assert.ok(large.tokensPerTask.input.mid > small.tokensPerTask.input.mid);
+});
+
+// --- code task classification (replaces the taskKind dropdown) ---
+
+test("classifies a described bug fix", async () => {
+  const r = await estimateCode({ description: "Fix the crash when a user submits an empty form", tasksPerMonth: 100 }, data.models);
+  assert.strictEqual(r.assumptions.taskKind, "bugfix");
+  assert.strictEqual(r.assumptions.description, "Fix the crash when a user submits an empty form");
+});
+
+test("classifies a described new feature", async () => {
+  const r = await estimateCode({ description: "Add support for exporting reports to CSV", tasksPerMonth: 100 }, data.models);
+  assert.strictEqual(r.assumptions.taskKind, "feature");
+});
+
+test("classifies a described refactor", async () => {
+  const r = await estimateCode({ description: "Refactor the payment module to reduce technical debt", tasksPerMonth: 100 }, data.models);
+  assert.strictEqual(r.assumptions.taskKind, "refactor");
+});
+
+test("an explicit taskKind skips classification and reports high confidence", async () => {
+  const r = await estimateCode({ taskKind: "bugfix", tasksPerMonth: 100 }, data.models);
+  assert.strictEqual(r.task.confidence, "high");
+});
+
+test("classifyCodeTaskKindHeuristic considers the file snippet as well as the description", () => {
+  const r = classifyCodeTaskKindHeuristic("Clean this up", "This function has a lot of technical debt and needs restructuring");
+  assert.strictEqual(r.taskKind, "refactor");
 });
 
 // --- variance bands / risk scenarios ---
@@ -191,8 +223,8 @@ test("workflow risk is bumped above the worst step tier", async () => {
   assert.ok(r.risk.warning, "workflow always carries a warning");
 });
 
-test("code estimator carries high risk and scenarios", () => {
-  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
+test("code estimator carries high risk and scenarios", async () => {
+  const r = await estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
   assert.strictEqual(r.risk.level, "high");
   const m = r.results[0];
   assert.ok(Math.abs(m.scenarios.blowout - m.scenarios.p50 * 8) < 0.1, "blowout ≈ 8× p50");
@@ -200,13 +232,13 @@ test("code estimator carries high risk and scenarios", () => {
 
 // --- coding agent tools (Claude Code, Codex CLI, Copilot, Cursor) ---
 
-test("coding tools list is omitted-safe when not provided", () => {
-  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
+test("coding tools list is omitted-safe when not provided", async () => {
+  const r = await estimateCode({ taskKind: "feature", tasksPerMonth: 100 }, data.models);
   assert.deepStrictEqual(r.codingTools, []);
 });
 
-test("coding tools report flat subscription price alongside API-equivalent cost", () => {
-  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
+test("coding tools report flat subscription price alongside API-equivalent cost", async () => {
+  const r = await estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
   assert.strictEqual(r.codingTools.length, data.codingTools.length);
   const claudeCodePro = r.codingTools.find((t) => t.id === "claude-code-pro");
   assert.strictEqual(claudeCodePro.monthlyCost.mid, 20);
@@ -219,8 +251,8 @@ test("coding tools report flat subscription price alongside API-equivalent cost"
   assert.ok(copilot.quality >= 50 && copilot.quality <= 100);
 });
 
-test("high-volume usage makes flat subscriptions cheaper than the metered equivalent", () => {
-  const r = estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 5000 }, data.models, data.codingTools);
+test("high-volume usage makes flat subscriptions cheaper than the metered equivalent", async () => {
+  const r = await estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 5000 }, data.models, data.codingTools);
   const claudeCodePro = r.codingTools.find((t) => t.id === "claude-code-pro");
   assert.ok(claudeCodePro.apiEquivalentMonthlyCost > claudeCodePro.monthlyCost.mid);
   assert.strictEqual(claudeCodePro.cheaperThanApiEquivalent, true);
@@ -228,8 +260,8 @@ test("high-volume usage makes flat subscriptions cheaper than the metered equiva
 
 // --- quota / usage-window estimates ---
 
-test("low volume fits comfortably within a single seat's quota", () => {
-  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
+test("low volume fits comfortably within a single seat's quota", async () => {
+  const r = await estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
   const ccp = r.codingTools.find((t) => t.id === "claude-code-pro");
   assert.ok(ccp.quota.utilizationPct < 100, "should not exceed quota at default volume");
   assert.strictEqual(ccp.quota.seatsNeeded, 1);
@@ -238,8 +270,8 @@ test("low volume fits comfortably within a single seat's quota", () => {
   assert.strictEqual(ccp.quota.windowLabel, "5-hour");
 });
 
-test("high volume exceeds a single seat's quota and scales seats + price", () => {
-  const r = estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 5000 }, data.models, data.codingTools);
+test("high volume exceeds a single seat's quota and scales seats + price", async () => {
+  const r = await estimateCode({ taskKind: "feature", codebaseSize: "large", tasksPerMonth: 5000 }, data.models, data.codingTools);
   const ccp = r.codingTools.find((t) => t.id === "claude-code-pro");
   assert.ok(ccp.quota.utilizationPct > 100);
   assert.ok(ccp.quota.seatsNeeded > 1);
@@ -247,8 +279,8 @@ test("high volume exceeds a single seat's quota and scales seats + price", () =>
   assert.ok(ccp.quota.hoursUntilQuotaExhausted < ccp.quota.windowHours, "quota would run out before the window resets");
 });
 
-test("monthly-reset tools report a monthly window label", () => {
-  const r = estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
+test("monthly-reset tools report a monthly window label", async () => {
+  const r = await estimateCode({ taskKind: "feature", tasksPerMonth: 200 }, data.models, data.codingTools);
   const cursor = r.codingTools.find((t) => t.id === "cursor-pro");
   assert.strictEqual(cursor.quota.windowLabel, "monthly");
   assert.strictEqual(cursor.quota.windowHours, 730);
