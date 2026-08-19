@@ -1,8 +1,13 @@
-# Preflight AI ✈️
+<p align="center">
+  <img src="docs/logo.svg" width="600" alt="Preflight AI — Know your AI bill before you run it.">
+</p>
 
-**Know your AI bill before you run it.**
-
-![Node](https://img.shields.io/badge/node-%E2%89%A522.5-brightgreen) ![React](https://img.shields.io/badge/react-18-blue) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen) ![Pricing](https://img.shields.io/badge/pricing%20data-July%202026%20verified-informational)
+<p align="center">
+  <img src="https://img.shields.io/badge/node-%E2%89%A522.5-brightgreen" alt="Node ≥22.5">
+  <img src="https://img.shields.io/badge/react-18-blue" alt="React 18">
+  <img src="https://img.shields.io/badge/tests-passing-brightgreen" alt="Tests passing">
+  <img src="https://img.shields.io/badge/pricing%20data-July%202026%20verified-informational" alt="Pricing data verified July 2026">
+</p>
 
 Describe any AI task in plain language and get a cost forecast — tokens, dollars, quality, and time — across every major model, before you spend a dollar.
 

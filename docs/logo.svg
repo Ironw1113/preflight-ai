@@ -1,0 +1,18 @@
+<svg width="900" height="220" viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Preflight AI">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8ebaff"/>
+      <stop offset="100%" stop-color="#3574e0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="900" height="220" rx="24" fill="#0f1420"/>
+  <rect x="1.5" y="1.5" width="897" height="217" rx="22.5" fill="none" stroke="#26304a" stroke-width="2"/>
+
+  <g transform="translate(52,58) scale(3.5)">
+    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="url(#accent)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="235" y="118" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="68" font-weight="800" fill="#f2f4f8">Preflight <tspan fill="#5b9dff">AI</tspan></text>
+  <text x="238" y="153" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="23" fill="#93a0b8">Know your AI bill before you run it.</text>
+</svg>
