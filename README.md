@@ -1,8 +1,16 @@
-# Preflight AI
+# Preflight AI ✈️
 
-**Know your AI bill before you run the task.**
+**Know your AI bill before you run it.**
 
-Describe a task in plain language ("summarize 500 support tickets a day"), and Preflight estimates token usage, monthly cost, expected quality, and time-per-task across every major AI platform (Claude, GPT, Gemini, DeepSeek, Grok, Groq) — before you spend a dollar.
+![Node](https://img.shields.io/badge/node-%E2%89%A522.5-brightgreen) ![React](https://img.shields.io/badge/react-18-blue) ![Tests](https://img.shields.io/badge/tests-passing-brightgreen) ![Pricing](https://img.shields.io/badge/pricing%20data-July%202026%20verified-informational)
+
+Describe a task in plain language ("summarize 500 support tickets a day"), and Preflight forecasts token usage, monthly cost, expected quality, and time-per-task across every major AI platform (Claude, GPT, Gemini, DeepSeek, Grok, Groq) — **before you spend a dollar**.
+
+Every estimate ships three numbers, never one: **P50** (expect it) / **P90** (budget it) / **blowout** (cap at it) — because AI agents burn 5–30× the tokens anyone plans for, and single-number estimates are structurally dishonest.
+
+![Preflight AI demo](docs/demo.gif)
+
+> 🎬 Higher-quality video: [docs/demo.mp4](docs/demo.mp4) · 📣 Launch copy for releases/posts: [GITHUB_LAUNCH.md](GITHUB_LAUNCH.md)
 
 ## Structure
 
