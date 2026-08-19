@@ -8,17 +8,27 @@ Describe any AI task in plain language and get a cost forecast — tokens, dolla
 
 Every estimate ships three numbers, never one: **P50** (expect it), **P90** (budget it), **blowout** (cap at it) — because AI agents routinely burn 5–30× the tokens anyone plans for.
 
-![Preflight AI demo](docs/demo.gif)
+Task classification is Claude-powered when `ANTHROPIC_API_KEY` is set, with a zero-dependency heuristic fallback otherwise — the whole app works with no API key.
 
-🎬 [Higher-quality video](docs/demo.mp4)
+## Single task
 
-## Features
+Describe any AI task in plain language — Preflight classifies it and forecasts tokens, cost, quality, and time across 15+ models (Claude, GPT, Gemini, DeepSeek, Grok, Groq). Upload the actual document it'll run on and the estimate uses its real word count instead of a guess.
 
-- **Single task** — plain-language description → per-model cost, quality, and time
-- **Multi-step workflows** — context-accumulation-aware, plus a cheapest-per-step model mix
-- **Code estimator** — describe a change, optionally upload the file or project it touches, get agent-loop-aware forecasts across both raw APIs and coding-agent subscriptions (Claude Code, Codex CLI, Copilot, Cursor)
-- **File-aware** — upload a document, code file, or whole project folder; estimates use real word counts instead of guesses
-- **Claude-powered classification** with a zero-dependency heuristic fallback — works with no API key
+![Single task estimator](docs/demo-single-task.gif)
+
+## Multi-step workflow
+
+Chain several steps together and each one automatically carries the context of the ones before it — the accumulation that makes real pipelines expensive. Preflight also suggests a mixed-model plan: the cheapest model per step at quality ≥ 85, routinely 90%+ cheaper than running everything on one flagship model.
+
+![Multi-step workflow estimator](docs/demo-workflow.gif)
+
+## Code estimator
+
+Describe a code change — bug fix to greenfield — and optionally upload the file or whole project it touches. Estimates account for agentic retries, language, and codebase size, and compare raw API cost against coding-agent subscriptions (Claude Code, Codex CLI, GitHub Copilot, Cursor) with real seat and quota math.
+
+![Code estimator](docs/demo-code.gif)
+
+🎬 Higher-quality videos: [single task](docs/demo-single-task.mp4) · [workflow](docs/demo-workflow.mp4) · [code](docs/demo-code.mp4)
 
 ## Quick start
 
