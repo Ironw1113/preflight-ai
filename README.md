@@ -10,7 +10,7 @@ Every estimate ships three numbers, never one: **P50** (expect it) / **P90** (bu
 
 ![Preflight AI demo](docs/demo.gif)
 
-> 🎬 Higher-quality video: [docs/demo.mp4](docs/demo.mp4) · 📣 Launch copy for releases/posts: [GITHUB_LAUNCH.md](GITHUB_LAUNCH.md)
+> 🎬 Higher-quality video: [docs/demo.mp4](docs/demo.mp4)
 
 ## Structure
 
